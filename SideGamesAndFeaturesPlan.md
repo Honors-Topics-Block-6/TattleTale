@@ -14,3 +14,7 @@ The player sees a day or week view with a few pre-placed blocks and a handful of
 ## Vibecoding
 
 The player is given a simple request for an AI builder, like making a profile page or cleaning up a homepage. The AI generates a rough version that gets some things wrong, and the player chooses from a few instruction options to tell it what to fix. It updates, still misses something, and after 2–3 rounds of correction the result becomes good enough to submit.
+
+## Doomscrolling
+
+The player sees a constantly scrolling social feed filled mostly with distracting junk. They can tap quick reactions on posts as they pass, but they must also save the few posts that are genuinely useful, informative, or relevant to the prompt. The challenge is keeping up with the feed without wasting attention on slop or missing the good posts.
