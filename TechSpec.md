@@ -43,6 +43,7 @@
 
 - PostgreSQL  
     Prisma ORM
+    Neon
 
 ## 3\. Authoritative Game Model
 
