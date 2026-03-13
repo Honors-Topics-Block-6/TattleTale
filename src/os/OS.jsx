@@ -45,14 +45,36 @@ const TYPING_SENTENCES = [
   'Silence can be louder than words.',
 ];
 
+// Simple attention-check tasks (odd-one-out style)
+const ATTENTION_TASKS = [
+  {
+    message: 'Tap the item that does NOT belong with the others.',
+    prompt: 'One of these is pure distraction.',
+    options: ['vote', 'night', 'message', 'banana'],
+    correctIndex: 3,
+  },
+  {
+    message: 'Tap the word that does NOT contain the letter "e".',
+    prompt: 'Only one of these words is missing the letter "e".',
+    options: ['code', 'vote', 'night', 'message'],
+    correctIndex: 2,
+  },
+  {
+    message: 'Tap the item that is NOT a phase of the game.',
+    prompt: 'Think about the flow of a TattleTale round.',
+    options: ['day', 'night', 'weekend', 'vote'],
+    correctIndex: 2,
+  },
+];
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
   const windowList = Object.values(windows);
 
-  // Side task: typing mini-game
+  // Side task: typing + attention-check mini-games
   const [sideTask, setSideTask] = useState(null);
 
-  // Randomly schedule notification pings for the typing task
+  // Randomly schedule notification pings for side tasks
   useEffect(() => {
     // Do not schedule a new ping while a task is active
     if (sideTask) return;
@@ -64,55 +86,96 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       Math.floor(Math.random() * (maxDelay - minDelay)) + minDelay;
 
     const timeoutId = setTimeout(() => {
-      const sentence =
-        TYPING_SENTENCES[
-          Math.floor(Math.random() * TYPING_SENTENCES.length)
-        ];
+      const useTypingTask = Math.random() < 0.5;
 
-      setSideTask({
-        id: String(Date.now()),
-        type: 'TYPING_SENTENCE',
-        title: 'System ping',
-        message:
-          'Type this sentence exactly to clear the interference and continue working.',
-        sentence,
-      });
+      if (useTypingTask) {
+        const sentence =
+          TYPING_SENTENCES[
+            Math.floor(Math.random() * TYPING_SENTENCES.length)
+          ];
+
+        setSideTask({
+          id: String(Date.now()),
+          type: 'TYPING_SENTENCE',
+          title: 'System ping',
+          message:
+            'Type this sentence exactly to clear the interference and continue working.',
+          sentence,
+        });
+      } else {
+        const taskDef =
+          ATTENTION_TASKS[
+            Math.floor(Math.random() * ATTENTION_TASKS.length)
+          ];
+
+        setSideTask({
+          id: String(Date.now()),
+          type: 'ATTENTION_CHECK',
+          title: 'Focus check',
+          message: taskDef.message,
+          prompt: taskDef.prompt,
+          options: taskDef.options,
+          correctIndex: taskDef.correctIndex,
+        });
+      }
     }, delay);
 
     return () => clearTimeout(timeoutId);
   }, [sideTask]);
 
-  const handleSideTaskSubmit = (value) => {
-    if (!sideTask || sideTask.type !== 'TYPING_SENTENCE') return 'FAIL';
+  const handleSideTaskSubmit = (payload) => {
+    if (!sideTask) return 'FAIL';
 
-    const target = sideTask.sentence.trim();
-    const answer = (value || '').trim();
+    // Typing mini-game
+    if (sideTask.type === 'TYPING_SENTENCE') {
+      const target = sideTask.sentence.trim();
+      const answer = (payload || '').trim();
 
-    // Case-sensitive comparison to make it feel precise
-    const success = target === answer;
+      const success = target === answer;
 
-    // We keep the task around so the modal can show success/fail,
-    // and let the user close it.
-    setSideTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            result: success ? 'SUCCESS' : 'FAIL',
-          }
-        : prev
-    );
+      setSideTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              result: success ? 'SUCCESS' : 'FAIL',
+            }
+          : prev
+      );
 
-    return success ? 'SUCCESS' : 'FAIL';
+      return success ? 'SUCCESS' : 'FAIL';
+    }
+
+    // Attention-check mini-game
+    if (sideTask.type === 'ATTENTION_CHECK') {
+      const index =
+        typeof payload === 'number'
+          ? payload
+          : payload && typeof payload.index === 'number'
+          ? payload.index
+          : -1;
+
+      const success = index === sideTask.correctIndex;
+
+      setSideTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              result: success ? 'SUCCESS' : 'FAIL',
+            }
+          : prev
+      );
+
+      return success ? 'SUCCESS' : 'FAIL';
+    }
+
+    return 'FAIL';
   };
 
   const handleSideTaskDismiss = () => {
     setSideTask(null);
   };
 
-  const activeSideTask = useMemo(
-    () => (sideTask && sideTask.type === 'TYPING_SENTENCE' ? sideTask : null),
-    [sideTask]
-  );
+  const activeSideTask = useMemo(() => sideTask, [sideTask]);
 
   return (
     <div className="xp-os">
