@@ -48,6 +48,7 @@ export function upsertPlayer(
   session: SessionState,
   username: string,
   socketId: string,
+  ipAddress: string,
   reconnectToken?: string
 ): PlayerState {
   const normalized = username.trim();
@@ -58,6 +59,7 @@ export function upsertPlayer(
     if (reconnectTarget) {
       reconnectTarget.online = true;
       reconnectTarget.socketId = socketId;
+      reconnectTarget.ipAddress = ipAddress;
       return reconnectTarget;
     }
   }
@@ -66,6 +68,7 @@ export function upsertPlayer(
   if (existingByName && !existingByName.online) {
     existingByName.online = true;
     existingByName.socketId = socketId;
+    existingByName.ipAddress = ipAddress;
     return existingByName;
   }
 
@@ -73,6 +76,7 @@ export function upsertPlayer(
     id: randomUUID(),
     name: normalized,
     online: true,
+    ipAddress,
     socketId,
     reconnectToken: randomUUID(),
     activeChannelId: 'global',
@@ -132,4 +136,63 @@ export function getPresenceSnapshot(session: SessionState): Array<{ id: string; 
     name: player.name,
     online: player.online,
   }));
+}
+
+export function findActiveLoginByIp(ipAddress: string): { sessionId: string; player: PlayerState } | null {
+  for (const session of sessions.values()) {
+    for (const player of session.players.values()) {
+      if (player.online && player.ipAddress === ipAddress) {
+        return { sessionId: session.id, player };
+      }
+    }
+  }
+  return null;
+}
+
+export function getAdminSessionSnapshots(): Array<{
+  id: string;
+  phase: Phase;
+  users: Array<{ id: string; name: string; online: boolean; ipAddress: string }>;
+}> {
+  return [...sessions.values()].map((session) => ({
+    id: session.id,
+    phase: session.phase,
+    users: [...session.players.values()].map((player) => ({
+      id: player.id,
+      name: player.name,
+      online: player.online,
+      ipAddress: player.ipAddress,
+    })),
+  }));
+}
+
+export function removePlayerFromSession(session: SessionState, playerId: string): PlayerState | null {
+  const player = session.players.get(playerId);
+  if (!player) return null;
+
+  session.players.delete(playerId);
+  const removedChannelIds = new Set<string>();
+
+  for (const [channelId, channel] of session.channels.entries()) {
+    const nextMembers = channel.members.filter((memberId) => memberId !== playerId);
+    if (nextMembers.length !== channel.members.length) {
+      channel.members = nextMembers;
+    }
+
+    if (channel.type === 'PRIVATE' && channel.members.length < 2) {
+      removedChannelIds.add(channelId);
+      session.channels.delete(channelId);
+      session.messagesByChannel.delete(channelId);
+    }
+  }
+
+  if (removedChannelIds.size > 0) {
+    for (const currentPlayer of session.players.values()) {
+      if (removedChannelIds.has(currentPlayer.activeChannelId)) {
+        currentPlayer.activeChannelId = 'global';
+      }
+    }
+  }
+
+  return player;
 }

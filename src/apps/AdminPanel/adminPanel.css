@@ -1,0 +1,65 @@
+.adminpanel-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 10px;
+  background: #f4f7fc;
+  font-family: Tahoma, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+
+.adminpanel-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.adminpanel-input {
+  border: 1px solid #7f9db9;
+  padding: 4px 6px;
+  background: #fff;
+  min-width: 220px;
+}
+
+.adminpanel-button {
+  border: 1px solid #3b5f9a;
+  background: linear-gradient(180deg, #fefefe 0%, #dce8fb 100%);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.adminpanel-button.danger {
+  border-color: #9a3b3b;
+  background: linear-gradient(180deg, #fff6f6 0%, #f6d9d9 100%);
+}
+
+.adminpanel-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.adminpanel-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #ccd7ea;
+  background: #fff;
+}
+
+.adminpanel-user-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid #edf1f8;
+}
+
+.adminpanel-meta {
+  color: #516b94;
+  font-size: 11px;
+}
+
+.adminpanel-status {
+  color: #1f3e70;
+}

@@ -6,6 +6,7 @@ export interface PlayerState {
   id: string;
   name: string;
   online: boolean;
+  ipAddress: string;
   socketId?: string;
   reconnectToken: string;
   activeChannelId: string;
