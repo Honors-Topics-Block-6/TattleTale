@@ -4,12 +4,14 @@
 import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
+import AngryBirds from '../../apps/AngryBirds';
 
 // Registry of all available apps
 const appRegistry = {
   [EmptyApp.id]: EmptyApp,
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
+  [AngryBirds.id]: AngryBirds,
 };
 
 // Default folder icon
