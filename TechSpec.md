@@ -42,7 +42,8 @@
 ### Persistence
 
 - PostgreSQL  
-    Prisma ORM
+    - Prisma ORM
+    - Neon
 
 ## 3\. Authoritative Game Model
 
