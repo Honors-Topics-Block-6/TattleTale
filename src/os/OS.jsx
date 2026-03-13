@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -5,6 +6,7 @@ import Taskbar from './components/Taskbar/Taskbar';
 import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
+import SideTaskModal from './components/SideTaskModal';
 
 import '../themes/xp/index.css';
 
@@ -33,10 +35,84 @@ const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
   </svg>
 `);
 
+// Sentences for the typing mini-game
+const TYPING_SENTENCES = [
+  'The signal is weak but real.',
+  'Trust the pattern, not the noise.',
+  'Someone is definitely hiding something.',
+  'You are being watched, stay calm.',
+  'Every message leaves a trace.',
+  'Silence can be louder than words.',
+];
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
-
   const windowList = Object.values(windows);
+
+  // Side task: typing mini-game
+  const [sideTask, setSideTask] = useState(null);
+
+  // Randomly schedule notification pings for the typing task
+  useEffect(() => {
+    // Do not schedule a new ping while a task is active
+    if (sideTask) return;
+
+    // Wait between 20s and 40s before next ping
+    const minDelay = 20000;
+    const maxDelay = 40000;
+    const delay =
+      Math.floor(Math.random() * (maxDelay - minDelay)) + minDelay;
+
+    const timeoutId = setTimeout(() => {
+      const sentence =
+        TYPING_SENTENCES[
+          Math.floor(Math.random() * TYPING_SENTENCES.length)
+        ];
+
+      setSideTask({
+        id: String(Date.now()),
+        type: 'TYPING_SENTENCE',
+        title: 'System ping',
+        message:
+          'Type this sentence exactly to clear the interference and continue working.',
+        sentence,
+      });
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [sideTask]);
+
+  const handleSideTaskSubmit = (value) => {
+    if (!sideTask || sideTask.type !== 'TYPING_SENTENCE') return 'FAIL';
+
+    const target = sideTask.sentence.trim();
+    const answer = (value || '').trim();
+
+    // Case-sensitive comparison to make it feel precise
+    const success = target === answer;
+
+    // We keep the task around so the modal can show success/fail,
+    // and let the user close it.
+    setSideTask((prev) =>
+      prev
+        ? {
+            ...prev,
+            result: success ? 'SUCCESS' : 'FAIL',
+          }
+        : prev
+    );
+
+    return success ? 'SUCCESS' : 'FAIL';
+  };
+
+  const handleSideTaskDismiss = () => {
+    setSideTask(null);
+  };
+
+  const activeSideTask = useMemo(
+    () => (sideTask && sideTask.type === 'TYPING_SENTENCE' ? sideTask : null),
+    [sideTask]
+  );
 
   return (
     <div className="xp-os">
@@ -58,6 +134,15 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       <Taskbar />
       <StartMenu />
       <ContextMenu />
+
+      {activeSideTask && (
+        <SideTaskModal
+          task={activeSideTask}
+          onSubmit={handleSideTaskSubmit}
+          onDismiss={handleSideTaskDismiss}
+        />
+      )}
     </div>
   );
 }
+
