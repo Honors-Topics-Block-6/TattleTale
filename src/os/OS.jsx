@@ -66,7 +66,6 @@ const ATTENTION_TASKS = [
     correctIndex: 2,
   },
 ];
-
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
   const windowList = Object.values(windows);
@@ -131,8 +130,11 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       const target = sideTask.sentence.trim();
       const answer = (payload || '').trim();
 
+      // Case-sensitive comparison to make it feel precise
       const success = target === answer;
 
+      // We keep the task around so the modal can show success/fail,
+      // and let the user close it.
       setSideTask((prev) =>
         prev
           ? {
@@ -176,7 +178,6 @@ export default function OS({ wallpaper = defaultWallpaper }) {
   };
 
   const activeSideTask = useMemo(() => sideTask, [sideTask]);
-
   return (
     <div className="xp-os">
       <Desktop wallpaper={wallpaper} />
