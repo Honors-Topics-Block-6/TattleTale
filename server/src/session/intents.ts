@@ -4,6 +4,7 @@ import { ensurePrivateChannel, getChannelById, isMember } from './channels.js';
 import { pushSystemEvent } from './events.js';
 import {
   appendChannelMessage,
+  findActiveLoginByIp,
   findPlayerById,
   findPlayerByName,
   getAccessibleChannels,
@@ -90,6 +91,11 @@ function rejectIntent(socket: Socket, message: string): void {
   socket.emit('intent.rejected', { message, timestamp: Date.now() });
 }
 
+function normalizeIpAddress(rawAddress: string | undefined): string {
+  if (!rawAddress) return 'unknown';
+  return rawAddress.startsWith('::ffff:') ? rawAddress.slice(7) : rawAddress;
+}
+
 function emitPresence(io: Server, session: SessionState): void {
   io.to(`session:${session.id}`).emit('user.presence', {
     users: getPresenceSnapshot(session),
@@ -139,7 +145,20 @@ export function attachIntentHandler(io: Server, socket: Socket): void {
       }
 
       const session = getOrCreateSession(join.sessionId.trim());
-      const player = upsertPlayer(session, join.username, socket.id, join.reconnectToken);
+      const clientIp = normalizeIpAddress(socket.handshake.address);
+      const activeLogin = findActiveLoginByIp(clientIp);
+      const reconnectingSamePlayer = Boolean(
+        activeLogin && join.reconnectToken && activeLogin.player.reconnectToken === join.reconnectToken
+      );
+
+      if (activeLogin && !reconnectingSamePlayer) {
+        socket.emit('session.error', {
+          message: `IP ${clientIp} already has an active login (${activeLogin.player.name}).`,
+        });
+        return;
+      }
+
+      const player = upsertPlayer(session, join.username, socket.id, clientIp, join.reconnectToken);
       const socketData = socket.data as SessionSocketData;
       socketData.sessionId = session.id;
       socketData.playerId = player.id;

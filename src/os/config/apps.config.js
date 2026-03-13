@@ -5,6 +5,7 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import ChatRoom from '../../apps/ChatRoom';
+import AdminPanel from '../../apps/AdminPanel';
 
 // Registry of all available apps
 const appRegistry = {
@@ -12,6 +13,7 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [ChatRoom.id]: ChatRoom,
+  [AdminPanel.id]: AdminPanel,
 };
 
 // Default folder icon
