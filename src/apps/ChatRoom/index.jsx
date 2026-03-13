@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import useAppMenu from '../../os/hooks/useAppMenu';
+import useMenuStore from '../../os/store/menuStore';
 import './chatRoom.css';
 
 const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:4000';
@@ -12,10 +13,12 @@ function formatTime(value) {
 }
 
 function ChatRoomComponent({ windowId }) {
+  const openContextMenu = useMenuStore((state) => state.openContextMenu);
   const [username, setUsername] = useState('');
   const [sessionId, setSessionId] = useState(DEFAULT_SESSION_ID);
   const [joined, setJoined] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [phase, setPhase] = useState('DAY_OPEN');
   const [channels, setChannels] = useState([]);
   const [activeChannelId, setActiveChannelId] = useState('global');
@@ -80,6 +83,7 @@ function ChatRoomComponent({ windowId }) {
       setError('Username and session are required.');
       return;
     }
+    if (connecting) return;
 
     if (!socketRef.current) {
       socketRef.current = io(CHAT_SERVER_URL, {
@@ -90,6 +94,8 @@ function ChatRoomComponent({ windowId }) {
     }
 
     const socket = socketRef.current;
+    setConnecting(true);
+    setError(`Connecting to ${CHAT_SERVER_URL}...`);
     if (!socket.connected) {
       socket.connect();
     }
@@ -104,9 +110,11 @@ function ChatRoomComponent({ windowId }) {
     socket.off('user.presence');
     socket.off('intent.rejected');
     socket.off('session.error');
+    socket.off('connect_error');
 
     socket.on('connect', () => {
       setConnected(true);
+      setConnecting(false);
       setError('');
       socket.emit('intent', {
         type: 'JOIN_SESSION',
@@ -121,6 +129,7 @@ function ChatRoomComponent({ windowId }) {
 
     socket.on('disconnect', () => {
       setConnected(false);
+      setConnecting(false);
       pushEvent({
         id: `disconnect-${Date.now()}`,
         type: 'CONNECTION_LOST',
@@ -131,6 +140,7 @@ function ChatRoomComponent({ windowId }) {
 
     socket.on('session.snapshot', (snapshot) => {
       setJoined(true);
+      setConnecting(false);
       setPhase(snapshot.phase);
       setChannels(snapshot.channels || []);
       setUsers(snapshot.users || []);
@@ -185,7 +195,14 @@ function ChatRoomComponent({ windowId }) {
     });
 
     socket.on('session.error', (sessionError) => {
+      setConnecting(false);
       setError(sessionError.message || 'Unable to join session.');
+    });
+
+    socket.on('connect_error', (connectError) => {
+      setConnecting(false);
+      setConnected(false);
+      setError(connectError?.message || `Could not connect to ${CHAT_SERVER_URL}. Is the chat server running?`);
     });
   };
 
@@ -221,6 +238,23 @@ function ChatRoomComponent({ windowId }) {
     if (!target) return;
     sendIntent('SWITCH_CHANNEL', { targetUsername: target });
     setDmTarget('');
+  };
+
+  const onUserContextMenu = (event, user) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const isSelf = user.name?.toLowerCase() === username.trim().toLowerCase();
+    openContextMenu(event.clientX, event.clientY, [
+      {
+        id: 'chat-with-user',
+        label: isSelf ? 'This is you' : `Chat with ${user.name}`,
+        disabled: isSelf,
+        action: () => {
+          sendIntent('SWITCH_CHANNEL', { targetUsername: user.name });
+        },
+      },
+    ]);
   };
 
   const onLeave = () => {
@@ -263,8 +297,13 @@ function ChatRoomComponent({ windowId }) {
             value={sessionId}
             onChange={(event) => setSessionId(event.target.value)}
           />
-          <button type="button" className="chatroom-button" onClick={connectAndJoin}>
-            Join Session
+          <button
+            type="button"
+            className="chatroom-button"
+            onClick={connectAndJoin}
+            disabled={connecting}
+          >
+            {connecting ? 'Connecting...' : 'Join Session'}
           </button>
           {error && <div className="chatroom-error">{error}</div>}
         </div>
@@ -351,6 +390,8 @@ function ChatRoomComponent({ windowId }) {
             <div
               key={user.id}
               className={`chatroom-user-item ${user.online ? '' : 'offline'}`}
+              onContextMenu={(event) => onUserContextMenu(event, user)}
+              title={`Right-click to chat with ${user.name}`}
             >
               {user.name} {user.online ? '' : '(offline)'}
             </div>

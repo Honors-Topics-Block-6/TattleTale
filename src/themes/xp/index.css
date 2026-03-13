@@ -227,6 +227,7 @@
   left: 0;
   min-width: 180px;
   background: var(--xp-menu-bg);
+  color: var(--xp-text-primary);
   border: 1px solid var(--xp-menu-border);
   box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
   z-index: 1000;
@@ -238,6 +239,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  color: var(--xp-text-primary);
 }
 
 .xp-menubar-dropdown-item:hover {

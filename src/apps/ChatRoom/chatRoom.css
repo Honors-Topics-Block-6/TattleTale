@@ -162,6 +162,11 @@
 .chatroom-user-item {
   padding: 7px 8px;
   border-bottom: 1px solid #f2f4f8;
+  cursor: context-menu;
+}
+
+.chatroom-user-item:hover {
+  background: #eff5ff;
 }
 
 .chatroom-user-item.offline {
