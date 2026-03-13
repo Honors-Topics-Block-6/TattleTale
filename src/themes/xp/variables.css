@@ -1,0 +1,94 @@
+:root {
+  /* Windows XP Blue Theme Colors */
+  --xp-blue-primary: #0a246a;
+  --xp-blue-secondary: #245edb;
+  --xp-blue-light: #3c82f7;
+  --xp-blue-gradient-start: #0058e6;
+  --xp-blue-gradient-end: #3c8cf4;
+
+  /* Title Bar Colors */
+  --xp-titlebar-active-start: #0058e6;
+  --xp-titlebar-active-mid: #3c82f7;
+  --xp-titlebar-active-end: #0058e6;
+  --xp-titlebar-inactive-start: #7996c8;
+  --xp-titlebar-inactive-mid: #9cb5e0;
+  --xp-titlebar-inactive-end: #7996c8;
+
+  /* Window Colors */
+  --xp-window-bg: #ece9d8;
+  --xp-window-border: #0054e3;
+  --xp-window-border-inner: #fff;
+  --xp-window-shadow: rgba(0, 0, 0, 0.4);
+
+  /* Button Colors */
+  --xp-button-face: #ece9d8;
+  --xp-button-highlight: #fff;
+  --xp-button-shadow: #aca899;
+  --xp-button-dark-shadow: #716f64;
+  --xp-button-hover: #faf8f0;
+  --xp-button-pressed: #dcd8c8;
+
+  /* Start Button */
+  --xp-start-green-start: #3c9a41;
+  --xp-start-green-end: #358b3a;
+
+  /* Taskbar */
+  --xp-taskbar-bg-start: #3168d5;
+  --xp-taskbar-bg-end: #4992eb;
+  --xp-taskbar-button-start: #3c8cf4;
+  --xp-taskbar-button-end: #245edb;
+
+  /* Start Menu */
+  --xp-startmenu-bg: #fff;
+  --xp-startmenu-sidebar: #4b7fc2;
+  --xp-startmenu-sidebar-bottom: #2455a4;
+  --xp-startmenu-hover: #316ac5;
+  --xp-startmenu-separator: #d4d0c8;
+
+  /* Desktop */
+  --xp-desktop-bg: #3a6ea5;
+
+  /* Text Colors */
+  --xp-text-primary: #000;
+  --xp-text-secondary: #555;
+  --xp-text-titlebar: #fff;
+  --xp-text-titlebar-inactive: #d4d0c8;
+  --xp-text-link: #0066cc;
+
+  /* Icon Colors */
+  --xp-icon-shadow: rgba(0, 0, 0, 0.3);
+
+  /* Menu Colors */
+  --xp-menu-bg: #fff;
+  --xp-menu-border: #aca899;
+  --xp-menu-hover: #316ac5;
+  --xp-menu-hover-text: #fff;
+  --xp-menu-separator: #d4d0c8;
+
+  /* Selection */
+  --xp-selection-bg: #316ac5;
+  --xp-selection-text: #fff;
+
+  /* Context Menu */
+  --xp-context-bg: #fff;
+  --xp-context-border: #aca899;
+
+  /* Sizes */
+  --xp-titlebar-height: 26px;
+  --xp-menubar-height: 20px;
+  --xp-taskbar-height: 40px;
+  --xp-border-radius: 3px;
+  --xp-window-border-width: 3px;
+
+  /* Fonts */
+  --xp-font-family: 'Tahoma', 'Segoe UI', sans-serif;
+  --xp-font-size: 11px;
+  --xp-font-size-title: 13px;
+
+  /* Z-Index Layers */
+  --xp-z-desktop: 1;
+  --xp-z-window-base: 100;
+  --xp-z-taskbar: 9000;
+  --xp-z-startmenu: 9500;
+  --xp-z-contextmenu: 9900;
+}
