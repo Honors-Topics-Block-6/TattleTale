@@ -1,33 +1,26 @@
 {
   "name": "tattletale",
+  "private": true,
   "version": "1.0.0",
-  "description": "",
-  "type": "module",
+  "description": "TattleTale monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "npm run build:shared && npm run build -w @tattletale/server",
+    "build:shared": "npm run build -w @tattletale/shared",
+    "build:server": "npm run build -w @tattletale/server",
+    "build:web": "npm run build -w @tattletale/web",
+    "dev:web": "npm run build:shared && npm run dev -w @tattletale/web",
+    "dev:server": "npm run build:shared && npm run dev -w @tattletale/server",
+    "test": "npm run test -w @tattletale/server",
+    "prisma:generate": "npm run prisma:generate -w @tattletale/server"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Ambitious-Jay/TattleTale.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Ambitious-Jay/TattleTale/issues"
-  },
-  "homepage": "https://github.com/Ambitious-Jay/TattleTale#readme",
-  "dependencies": {
-    "immer": "^11.1.4",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "uuid": "^13.0.0",
-    "zustand": "^5.0.11"
+  "engines": {
+    "node": ">=20.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.1.4",
-    "vite": "^7.3.1"
+    "typescript": "^5.9.2"
   }
 }

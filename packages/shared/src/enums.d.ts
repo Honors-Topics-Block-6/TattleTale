@@ -1,0 +1,34 @@
+export declare enum Phase {
+    DAY_OPEN = "DAY_OPEN",
+    DAY_VOTE = "DAY_VOTE",
+    DAY_RESOLVE = "DAY_RESOLVE",
+    NIGHT_ACTIONS = "NIGHT_ACTIONS",
+    NIGHT_RESOLVE = "NIGHT_RESOLVE",
+    NIGHT_REVEAL = "NIGHT_REVEAL"
+}
+export declare enum ChannelType {
+    GLOBAL = "GLOBAL",
+    PRIVATE = "PRIVATE",
+    ROLE = "ROLE",
+    TEMP = "TEMP",
+    SYSTEM = "SYSTEM"
+}
+export declare enum IntentType {
+    SEND_MESSAGE = "SEND_MESSAGE",
+    SUBMIT_VOTE = "SUBMIT_VOTE",
+    SUBMIT_NIGHT_ACTION = "SUBMIT_NIGHT_ACTION"
+}
+export declare enum SystemEventType {
+    CHANNEL_LOCKED = "CHANNEL_LOCKED",
+    COMMUNICATION_JAMMED = "COMMUNICATION_JAMMED",
+    MESSAGE_INTEGRITY_COMPROMISED = "MESSAGE_INTEGRITY_COMPROMISED",
+    TEMP_CHANNEL_CREATED = "TEMP_CHANNEL_CREATED",
+    PSYCHIC_SIGNAL_RECEIVED = "PSYCHIC_SIGNAL_RECEIVED",
+    GAME_STARTED = "GAME_STARTED"
+}
+export declare enum LobbyStatus {
+    WAITING = "WAITING",
+    IN_GAME = "IN_GAME",
+    CLOSED = "CLOSED"
+}
+//# sourceMappingURL=enums.d.ts.map
