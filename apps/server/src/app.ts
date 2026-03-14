@@ -5,6 +5,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { Server as SocketIOServer } from 'socket.io';
 
 import type { AppConfig } from './config/env.js';
+import { PrismaGameAuditRepository } from './infra/persistence/prisma-game-audit-repository.js';
+import { RedisRuntimeRepository } from './infra/persistence/redis-runtime-repository.js';
 import { registerOperationalRoutes, type HealthChecker } from './transport/http/register-operational-routes.js';
 import { registerFoundationNamespace } from './transport/socket/register-foundation-namespace.js';
 
@@ -43,7 +45,10 @@ export async function createApp(
     },
   });
 
-  registerFoundationNamespace(io, fastify.log);
+  registerFoundationNamespace(io, fastify.log, {
+    runtimeRepository: new RedisRuntimeRepository(dependencies.redis),
+    auditRepository: new PrismaGameAuditRepository(dependencies.prisma),
+  });
 
   fastify.addHook('onClose', async () => {
     io.close();
