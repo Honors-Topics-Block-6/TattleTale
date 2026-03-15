@@ -7,6 +7,10 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "smoke:socket": "node scripts/socket-smoke.mjs",
+    "redis:get": "node scripts/redis-get.mjs",
+    "redis:del": "node scripts/redis-get.mjs del",
+    "redis:del-pattern": "node scripts/redis-get.mjs del-pattern",
     "prisma:generate": "prisma generate",
     "test": "vitest run --pool=threads --maxWorkers=1"
   },
