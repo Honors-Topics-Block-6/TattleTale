@@ -4,6 +4,7 @@ import type {
   KickPlayerCommand,
   LeaveLobbyCommand,
   ReconnectCommand,
+  SubmitIntentCommand,
   StartGameCommand,
 } from './commands.js';
 import type { CommandAck, CommandErrorPayload } from './errors.js';
@@ -12,6 +13,7 @@ import type {
   LobbyView,
   SessionView,
   SocketReadyPayload,
+  SubmitIntentSuccess,
   StartGameSuccess,
 } from './views.js';
 
@@ -25,6 +27,7 @@ export const SOCKET_EVENTS = {
     leaveLobby: 'lobby:leave',
     kickPlayer: 'lobby:kick-player',
     startGame: 'game:start',
+    submitIntent: 'game:submit-intent',
   },
   server: {
     ready: 'system:ready',
@@ -45,6 +48,7 @@ export interface ClientCommandPayloads {
   [SOCKET_EVENTS.client.leaveLobby]: LeaveLobbyCommand;
   [SOCKET_EVENTS.client.kickPlayer]: KickPlayerCommand;
   [SOCKET_EVENTS.client.startGame]: StartGameCommand;
+  [SOCKET_EVENTS.client.submitIntent]: SubmitIntentCommand;
 }
 
 export interface ClientCommandAcks {
@@ -54,6 +58,7 @@ export interface ClientCommandAcks {
   [SOCKET_EVENTS.client.leaveLobby]: CommandAck<{ lobby: LobbyView | null }>;
   [SOCKET_EVENTS.client.kickPlayer]: CommandAck<{ lobby: LobbyView }>;
   [SOCKET_EVENTS.client.startGame]: CommandAck<StartGameSuccess>;
+  [SOCKET_EVENTS.client.submitIntent]: CommandAck<SubmitIntentSuccess>;
 }
 
 export interface ServerPushPayloads {

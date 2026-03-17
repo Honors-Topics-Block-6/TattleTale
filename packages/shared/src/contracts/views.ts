@@ -3,6 +3,7 @@ import type {
   IntentType,
   LobbyStatus,
   Phase,
+  SessionStatus,
   SystemEventType,
 } from '../enums.js';
 
@@ -55,8 +56,10 @@ export interface SystemEventView {
 export interface SessionView {
   gameId: string;
   lobbyCode: string;
+  status: SessionStatus;
   phase: Phase;
   cycle: number;
+  currentPhaseEndsAt: string | null;
   players: SessionPlayerView[];
   channels: ChannelView[];
   pendingIntentTypes: IntentType[];
@@ -71,6 +74,11 @@ export interface LobbyCommandSuccess {
 
 export interface StartGameSuccess {
   lobby: LobbyView;
+  session: SessionView;
+}
+
+export interface SubmitIntentSuccess {
+  acceptedIntentId: string;
   session: SessionView;
 }
 
