@@ -248,13 +248,13 @@
 }
 
 .xp-menubar-dropdown-item.disabled {
-  color: var(--xp-button-shadow);
+  color: var(--xp-button-shadow) !important;
   cursor: default;
 }
 
 .xp-menubar-dropdown-item.disabled:hover {
   background: transparent;
-  color: var(--xp-button-shadow);
+  color: var(--xp-button-shadow) !important;
 }
 
 .xp-menubar-separator {
