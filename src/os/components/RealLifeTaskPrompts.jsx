@@ -17,9 +17,14 @@ function getRandomInt(min, max) {
 
 export default function RealLifeTaskPrompts() {
   const isInGame = useGameStore((state) => state.isInGame);
+  const samplePromptRequestId = useGameStore(
+    (state) => state.samplePromptRequestId
+  );
+
   const [task, setTask] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [canDismiss, setCanDismiss] = useState(false);
+  const [isSample, setIsSample] = useState(false);
 
   const nextPromptTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
@@ -35,36 +40,41 @@ export default function RealLifeTaskPrompts() {
     }
   };
 
+  const startPrompt = (durationSecondsOverride) => {
+    const durationSeconds = durationSecondsOverride || getRandomInt(10, 20);
+    const message =
+      TASK_MESSAGES[getRandomInt(0, TASK_MESSAGES.length - 1)];
+
+    setTask({ message, durationSeconds });
+    setRemainingSeconds(durationSeconds);
+    setCanDismiss(false);
+
+    // Start countdown
+    countdownIntervalRef.current = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+          setCanDismiss(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
   const scheduleNextPrompt = () => {
     // Wait a random amount of time before the next prompt
     const delayMs = getRandomInt(100, 200) * 1000;
     nextPromptTimeoutRef.current = setTimeout(() => {
-      const durationSeconds = getRandomInt(10, 20);
-      const message =
-        TASK_MESSAGES[getRandomInt(0, TASK_MESSAGES.length - 1)];
-
-      setTask({ message, durationSeconds });
-      setRemainingSeconds(durationSeconds);
-      setCanDismiss(false);
-
-      // Start countdown
-      countdownIntervalRef.current = setInterval(() => {
-        setRemainingSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-            setCanDismiss(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      setIsSample(false);
+      startPrompt();
     }, delayMs);
   };
 
   useEffect(() => {
     // Only run prompts while actively in a game session
-    if (!isInGame) {
+    if (!isInGame && !isSample) {
       clearTimers();
       setTask(null);
       setRemainingSeconds(0);
@@ -83,12 +93,27 @@ export default function RealLifeTaskPrompts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInGame]);
 
+  // Handle lobby "sample task" previews triggered from the lobby screen.
+  useEffect(() => {
+    if (samplePromptRequestId === 0) return;
+
+    // For a sample, ignore in-game gating but do not schedule follow-ups.
+    clearTimers();
+    setIsSample(true);
+    startPrompt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [samplePromptRequestId]);
+
   const handleDismiss = () => {
     if (!canDismiss) return;
     setTask(null);
     setRemainingSeconds(0);
     setCanDismiss(false);
-    scheduleNextPrompt();
+    if (!isSample) {
+      scheduleNextPrompt();
+    } else {
+      setIsSample(false);
+    }
   };
 
   if (!task) return null;
