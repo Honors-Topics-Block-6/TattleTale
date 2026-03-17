@@ -8,10 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "vite",
-    "dev:server": "npm run dev --prefix server",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "npm run dev:web",
     "build": "npm run build:shared && npm run build -w @tattletale/server",
     "build:shared": "npm run build -w @tattletale/shared",
     "build:server": "npm run build -w @tattletale/server",
@@ -26,21 +23,6 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Ambitious-Jay/TattleTale/issues"
-  },
-  "homepage": "https://github.com/Ambitious-Jay/TattleTale#readme",
-  "dependencies": {
-    "immer": "^11.1.4",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "socket.io-client": "^4.8.3",
-    "uuid": "^13.0.0",
-    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
