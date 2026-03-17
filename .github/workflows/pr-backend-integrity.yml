@@ -1,0 +1,59 @@
+name: PR Backend Integrity
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'apps/server/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.github/workflows/pr-backend-integrity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  backend-integrity:
+    name: Backend Integrity
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tattletale?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/tattletale?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: Build Shared
+        run: npm run build:shared
+
+      - name: Typecheck Backend
+        run: npm exec tsc -- -p apps/server/tsconfig.json --noEmit
+
+      - name: Build Backend
+        run: npm run build:server
+
+      - name: Test Backend
+        run: npm run test -w @tattletale/server

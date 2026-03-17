@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Game {
+  id                 String              @id
+  lobbyCode          String              @unique @map("lobby_code")
+  status             String
+  currentPhase       String              @map("current_phase")
+  cycle              Int
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  players            GamePlayer[]
+  sessionAuditEvents SessionAuditEvent[]
+  messageAuditEvents MessageAuditEvent[]
+
+  @@map("games")
+}
+
+model GamePlayer {
+  id          String   @id @default(cuid())
+  gameId      String   @map("game_id")
+  playerId    String   @map("player_id")
+  displayName String   @map("display_name")
+  alive       Boolean  @default(true)
+  isHost      Boolean  @default(false) @map("is_host")
+  roleId      String?  @map("role_id")
+  team        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, playerId])
+  @@map("game_players")
+}
+
+model SessionAuditEvent {
+  id        String   @id @default(cuid())
+  gameId    String   @map("game_id")
+  type      String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, createdAt])
+  @@map("session_audit_events")
+}
+
+model MessageAuditEvent {
+  id               String   @id @default(cuid())
+  gameId           String   @map("game_id")
+  channelId        String   @map("channel_id")
+  senderPlayerId   String   @map("sender_player_id")
+  rawPayload       Json     @map("raw_payload")
+  deliveredPayload Json?    @map("delivered_payload")
+  createdAt        DateTime @default(now()) @map("created_at")
+  game             Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, createdAt])
+  @@map("message_audit_events")
+}
