@@ -1,4 +1,10 @@
-import { ChannelType, Phase, SystemEventType } from '@tattletale/shared';
+import {
+  ChannelType,
+  Phase,
+  SessionStatus,
+  SystemEventType,
+  Team,
+} from '@tattletale/shared';
 
 import type { LobbyState } from '../lobby/types.js';
 import type { GameState } from './types.js';
@@ -16,7 +22,7 @@ export function buildSessionFromLobby(
       alive: player.alive,
       connected: player.connected,
       roleId: null,
-      team: null,
+      team: Team.FRIENDS,
       permissions: [],
     },
   ]);
@@ -24,6 +30,8 @@ export function buildSessionFromLobby(
   return {
     gameId,
     lobbyCode: lobby.code,
+    status: SessionStatus.ACTIVE,
+    winnerTeam: null,
     phase: Phase.DAY_OPEN,
     cycle: 1,
     players: Object.fromEntries(playerEntries),

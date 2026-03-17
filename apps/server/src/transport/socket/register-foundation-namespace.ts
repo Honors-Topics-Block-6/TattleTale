@@ -1,5 +1,7 @@
 import {
+  IntentType,
   LobbyStatus,
+  SessionStatus,
   SOCKET_EVENTS,
   SOCKET_NAMESPACE,
   SystemEventType,
@@ -7,14 +9,27 @@ import {
   type ClientCommandPayloads,
   type CommandFailure,
   type LobbyCommandSuccess,
+  type SubmitIntentSuccess,
   type StartGameSuccess,
 } from '@tattletale/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 
 import { DomainError } from '../../domain/errors.js';
+import {
+  appendIntent,
+  initializeSessionRuntime,
+  isIntentAllowedInPhase,
+  processElimination,
+  reconcileSessionRuntime,
+  type RuntimeEvent,
+} from '../../domain/game/runtime-domain.js';
 import { buildSessionFromLobby } from '../../domain/game/session-domain.js';
-import type { GameState } from '../../domain/game/types.js';
+import type {
+  GameState,
+  NightActionIntentPayload,
+  VoteIntentPayload,
+} from '../../domain/game/types.js';
 import {
   generateLobbyCode,
   normalizeLobbyCode,
@@ -45,7 +60,7 @@ function notImplementedResponse(): CommandFailure {
     ok: false as const,
     error: {
       code: 'NOT_IMPLEMENTED',
-      message: 'Lobby and game runtime flows are not implemented in this foundation skeleton.',
+      message: 'This command is not implemented.',
     },
   };
 }
@@ -106,6 +121,27 @@ function emitSessionState(namespace: ReturnType<SocketIOServer['of']>, session: 
   namespace
     .to(sessionRoom(session.gameId))
     .emit(SOCKET_EVENTS.server.sessionState, toSessionView(session));
+}
+
+async function reconcileRuntime(
+  logger: FastifyBaseLogger,
+  auditRepository: GameAuditRepository,
+  runtimeRepository: RuntimeRepository,
+  lobby: LobbyState,
+  session: GameState,
+): Promise<RuntimeEvent[]> {
+  const now = new Date().toISOString();
+  const events = reconcileSessionRuntime(session, lobby, lobby.settings, now);
+
+  if (events.length === 0) {
+    return events;
+  }
+
+  await runtimeRepository.saveSession(session);
+  await runtimeRepository.saveLobby(lobby);
+  await persistRuntimeEvents(logger, auditRepository, session.gameId, events);
+
+  return events;
 }
 
 function parseLobbySettings(settings?: Partial<LobbySettings>): LobbySettings {
@@ -180,6 +216,19 @@ async function requireLobby(
   return lobby;
 }
 
+async function requireSession(
+  runtimeRepository: RuntimeRepository,
+  gameId: string,
+): Promise<GameState> {
+  const session = await runtimeRepository.getSession(gameId);
+
+  if (!session) {
+    throw new DomainError('SESSION_NOT_FOUND', 'Active session was not found.', 404);
+  }
+
+  return session;
+}
+
 function requirePlayerInLobby(lobby: LobbyState, playerId: string) {
   const playerIndex = lobby.players.findIndex((player) => player.playerId === playerId);
 
@@ -237,23 +286,132 @@ function markPlayerPermanentlyRemoved(player: LobbyState['players'][number]): vo
   player.reconnectToken = crypto.randomUUID();
 }
 
-function removePlayerFromSession(session: GameState, playerId: string, now: string): void {
-  const sessionPlayer = session.players[playerId];
-
-  if (sessionPlayer) {
-    sessionPlayer.alive = false;
-    sessionPlayer.connected = false;
-  }
-
-  for (const channel of Object.values(session.channels)) {
-    channel.members = channel.members.filter((memberId) => memberId !== playerId);
-  }
-
-  session.updatedAt = now;
-}
-
 function touchLobby(lobby: LobbyState, now: string): void {
   lobby.updatedAt = now;
+}
+
+function parseVoteIntentPayload(payload: unknown): VoteIntentPayload {
+  if (!payload || typeof payload !== 'object') {
+    throw new DomainError('INVALID_INTENT_PAYLOAD', 'Vote payload must be an object.');
+  }
+
+  const candidate = (payload as { targetPlayerId?: unknown }).targetPlayerId;
+  if (candidate !== null && typeof candidate !== 'string') {
+    throw new DomainError(
+      'INVALID_INTENT_PAYLOAD',
+      'Vote payload targetPlayerId must be a string or null.',
+    );
+  }
+
+  return {
+    targetPlayerId: candidate ?? null,
+  };
+}
+
+function parseNightActionIntentPayload(payload: unknown): NightActionIntentPayload {
+  if (!payload || typeof payload !== 'object') {
+    throw new DomainError('INVALID_INTENT_PAYLOAD', 'Night action payload must be an object.');
+  }
+
+  const actionType = (payload as { actionType?: unknown }).actionType;
+  if (typeof actionType !== 'string' || actionType.trim().length === 0) {
+    throw new DomainError(
+      'INVALID_INTENT_PAYLOAD',
+      'Night action payload actionType must be a non-empty string.',
+    );
+  }
+
+  const rawTarget = (payload as { targetPlayerId?: unknown }).targetPlayerId;
+  if (rawTarget !== undefined && rawTarget !== null && typeof rawTarget !== 'string') {
+    throw new DomainError(
+      'INVALID_INTENT_PAYLOAD',
+      'Night action payload targetPlayerId must be a string, null, or omitted.',
+    );
+  }
+
+  const rawMetadata = (payload as { metadata?: unknown }).metadata;
+  if (rawMetadata !== undefined && (typeof rawMetadata !== 'object' || rawMetadata === null)) {
+    throw new DomainError(
+      'INVALID_INTENT_PAYLOAD',
+      'Night action payload metadata must be an object when provided.',
+    );
+  }
+
+  return {
+    actionType: actionType.trim(),
+    targetPlayerId: rawTarget ?? null,
+    metadata: (rawMetadata as Record<string, unknown> | undefined) ?? {},
+  };
+}
+
+function resolveIntentPayload(
+  type: IntentType,
+  payload: unknown,
+): VoteIntentPayload | NightActionIntentPayload {
+  if (type === IntentType.SUBMIT_VOTE) {
+    return parseVoteIntentPayload(payload);
+  }
+
+  if (type === IntentType.SUBMIT_NIGHT_ACTION) {
+    return parseNightActionIntentPayload(payload);
+  }
+
+  throw new DomainError(
+    'NOT_IMPLEMENTED',
+    `${type} is intentionally not implemented in this milestone.`,
+  );
+}
+
+async function persistRuntimeEvents(
+  logger: FastifyBaseLogger,
+  auditRepository: GameAuditRepository,
+  gameId: string,
+  events: RuntimeEvent[],
+): Promise<void> {
+  for (const event of events) {
+    try {
+      if (event.type === 'PHASE_ADVANCED') {
+        await auditRepository.appendSessionEvent({
+          gameId,
+          type: 'PHASE_ADVANCED',
+          payload: {
+            phase: event.phase,
+            cycle: event.cycle,
+            at: event.at,
+          },
+        });
+        continue;
+      }
+
+      if (event.type === 'PLAYER_ELIMINATED') {
+        await auditRepository.appendSessionEvent({
+          gameId,
+          type: 'PLAYER_ELIMINATED',
+          payload: {
+            playerId: event.playerId,
+            reason: event.reason,
+            at: event.at,
+          },
+        });
+        continue;
+      }
+
+      await auditRepository.appendSessionEvent({
+        gameId,
+        type: 'GAME_ENDED',
+        payload: {
+          winnerTeam: event.winnerTeam,
+          status: event.status,
+          at: event.at,
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, gameId, eventType: event.type },
+        'Failed to persist runtime audit event',
+      );
+    }
+  }
 }
 
 export function registerFoundationNamespace(
@@ -518,6 +676,17 @@ export function registerFoundationNamespace(
                 if (sessionPlayer) {
                   sessionPlayer.connected = true;
                   session.updatedAt = now;
+                }
+
+                const runtimeEvents = await reconcileRuntime(
+                  logger,
+                  auditRepository,
+                  runtimeRepository,
+                  lobby,
+                  session,
+                );
+
+                if (runtimeEvents.length === 0) {
                   await runtimeRepository.saveSession(session);
                 }
 
@@ -600,14 +769,26 @@ export function registerFoundationNamespace(
               throw new DomainError('INVALID_LOBBY_STATE', 'Lobby is not in a valid state for leave.');
             }
 
-            const session = await runtimeRepository.getSession(lobby.sessionId);
+            const session = await requireSession(runtimeRepository, lobby.sessionId);
+            await reconcileRuntime(
+              logger,
+              auditRepository,
+              runtimeRepository,
+              lobby,
+              session,
+            );
 
-            if (!session) {
-              throw new DomainError('SESSION_NOT_FOUND', 'Active session was not found.', 404);
-            }
-
+            const eliminationEvents = processElimination(
+              session,
+              lobby,
+              player.playerId,
+              now,
+              'PLAYER_LEFT',
+            );
             markPlayerPermanentlyRemoved(player);
-            removePlayerFromSession(session, player.playerId, now);
+            if (session.players[player.playerId]) {
+              session.players[player.playerId].connected = false;
+            }
 
             if (player.isHost) {
               const candidates = lobby.players.filter(
@@ -624,6 +805,12 @@ export function registerFoundationNamespace(
 
             await runtimeRepository.saveLobby(lobby);
             await runtimeRepository.saveSession(session);
+            await persistRuntimeEvents(
+              logger,
+              auditRepository,
+              session.gameId,
+              eliminationEvents,
+            );
 
             updateSocketReady(socket, {
               lobbyCode: null,
@@ -699,14 +886,26 @@ export function registerFoundationNamespace(
               throw new DomainError('INVALID_LOBBY_STATE', 'Lobby is not in a valid state for kick.');
             }
 
-            const session = await runtimeRepository.getSession(lobby.sessionId);
+            const session = await requireSession(runtimeRepository, lobby.sessionId);
+            await reconcileRuntime(
+              logger,
+              auditRepository,
+              runtimeRepository,
+              lobby,
+              session,
+            );
 
-            if (!session) {
-              throw new DomainError('SESSION_NOT_FOUND', 'Active session was not found.', 404);
-            }
-
+            const eliminationEvents = processElimination(
+              session,
+              lobby,
+              target.playerId,
+              now,
+              'PLAYER_KICKED',
+            );
             markPlayerPermanentlyRemoved(target);
-            removePlayerFromSession(session, target.playerId, now);
+            if (session.players[target.playerId]) {
+              session.players[target.playerId].connected = false;
+            }
 
             if (target.isHost) {
               const hostCandidates = lobby.players.filter(
@@ -728,6 +927,12 @@ export function registerFoundationNamespace(
 
             await runtimeRepository.saveLobby(lobby);
             await runtimeRepository.saveSession(session);
+            await persistRuntimeEvents(
+              logger,
+              auditRepository,
+              session.gameId,
+              eliminationEvents,
+            );
 
             emitLobbyState(namespace, lobby);
             emitSessionState(namespace, session);
@@ -783,6 +988,8 @@ export function registerFoundationNamespace(
             const now = new Date().toISOString();
             const gameId = crypto.randomUUID();
             const session = buildSessionFromLobby(lobby, gameId, now);
+            // Temporary split choice from TechSpec implementation plan; revise after playtest data.
+            initializeSessionRuntime(session, lobby.settings, now);
 
             lobby.status = LobbyStatus.IN_GAME;
             lobby.sessionId = gameId;
@@ -803,7 +1010,7 @@ export function registerFoundationNamespace(
                   alive: player.alive,
                   isHost: player.isHost,
                   roleId: null,
-                  team: null,
+                  team: session.players[player.playerId]?.team ?? null,
                 })),
               });
 
@@ -830,6 +1037,124 @@ export function registerFoundationNamespace(
 
             return commandSuccess<StartGameSuccess>({
               lobby: toLobbyView(lobby),
+              session: toSessionView(session),
+            });
+          },
+        );
+      },
+    );
+
+    socket.on(
+      SOCKET_EVENTS.client.submitIntent,
+      async (
+        payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.submitIntent],
+        ack?: (response: ClientCommandAcks[typeof SOCKET_EVENTS.client.submitIntent]) => void,
+      ) => {
+        await runCommand(
+          socket,
+          SOCKET_EVENTS.client.submitIntent,
+          payload,
+          ack,
+          async (command) => {
+            const lobby = await requireLobby(runtimeRepository, command.lobbyCode);
+            const { player: actor } = requirePlayerInLobby(lobby, command.playerId);
+
+            if (actor.reconnectToken !== command.reconnectToken) {
+              throw new DomainError('INVALID_RECONNECT_TOKEN', 'Reconnect token is invalid.', 403);
+            }
+
+            if (lobby.status !== LobbyStatus.IN_GAME || !lobby.sessionId) {
+              throw new DomainError('LOBBY_NOT_IN_GAME', 'Lobby is not in an active game.');
+            }
+
+            if (command.gameId !== lobby.sessionId) {
+              throw new DomainError('SESSION_MISMATCH', 'Game session does not match lobby session.');
+            }
+
+            await requireBoundSocket(runtimeRepository, socket, lobby.code, actor.playerId);
+
+            const session = await requireSession(runtimeRepository, command.gameId);
+            const runtimeEvents = await reconcileRuntime(
+              logger,
+              auditRepository,
+              runtimeRepository,
+              lobby,
+              session,
+            );
+
+            if (runtimeEvents.length > 0) {
+              emitLobbyState(namespace, lobby);
+              emitSessionState(namespace, session);
+            }
+
+            if (!session.players[actor.playerId]) {
+              throw new DomainError('PLAYER_NOT_FOUND', 'Player is not part of the active session.', 404);
+            }
+
+            if (session.status !== SessionStatus.ACTIVE) {
+              throw new DomainError('GAME_NOT_ACTIVE', 'Cannot accept intents after game completion.', 409);
+            }
+
+            if (!session.players[actor.playerId].alive) {
+              throw new DomainError('PLAYER_NOT_ALIVE', 'Eliminated players cannot submit intents.', 403);
+            }
+
+            if (command.intent.type === IntentType.SEND_MESSAGE) {
+              throw new DomainError(
+                'NOT_IMPLEMENTED',
+                'SEND_MESSAGE is intentionally not implemented in this milestone.',
+              );
+            }
+
+            if (
+              command.intent.type !== IntentType.SUBMIT_VOTE
+              && command.intent.type !== IntentType.SUBMIT_NIGHT_ACTION
+            ) {
+              throw new DomainError('INVALID_INTENT_TYPE', 'Intent type is not supported.');
+            }
+
+            if (!isIntentAllowedInPhase(command.intent.type, session.phase)) {
+              throw new DomainError(
+                'INTENT_NOT_ALLOWED_IN_PHASE',
+                `Intent ${command.intent.type} is not allowed in phase ${session.phase}.`,
+              );
+            }
+
+            const intentPayload = resolveIntentPayload(command.intent.type, command.intent.payload);
+
+            if (command.intent.type === IntentType.SUBMIT_VOTE) {
+              const votePayload = intentPayload as VoteIntentPayload;
+              if (votePayload.targetPlayerId !== null) {
+                const target = session.players[votePayload.targetPlayerId];
+                if (!target || !target.alive) {
+                  throw new DomainError('INVALID_VOTE_TARGET', 'Vote target must be an alive player.');
+                }
+              }
+            }
+
+            const now = new Date().toISOString();
+            const appendResult = appendIntent(session, {
+              playerId: actor.playerId,
+              type: command.intent.type,
+              payload: intentPayload,
+              phase: session.phase,
+              cycle: session.cycle,
+              createdAt: now,
+            });
+
+            if (!appendResult.accepted) {
+              throw new DomainError(
+                'VOTE_ALREADY_SUBMITTED',
+                'Only one vote submission is allowed per alive player each cycle.',
+              );
+            }
+
+            session.updatedAt = now;
+            await runtimeRepository.saveSession(session);
+            emitSessionState(namespace, session);
+
+            return commandSuccess<SubmitIntentSuccess>({
+              acceptedIntentId: appendResult.intent.id,
               session: toSessionView(session),
             });
           },

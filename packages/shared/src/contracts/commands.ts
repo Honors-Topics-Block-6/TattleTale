@@ -1,4 +1,5 @@
 import type { LobbySettingsView } from './views.js';
+import type { IntentType } from '../enums.js';
 
 export interface CreateLobbyCommand {
   displayName: string;
@@ -33,4 +34,26 @@ export interface StartGameCommand {
   lobbyCode: string;
   actorPlayerId: string;
   reconnectToken: string;
+}
+
+export interface VoteIntentPayload {
+  targetPlayerId: string | null;
+}
+
+export interface NightActionIntentPayload {
+  actionType: string;
+  targetPlayerId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SubmitIntentCommand {
+  lobbyCode: string;
+  gameId: string;
+  playerId: string;
+  reconnectToken: string;
+  intent: {
+    type: IntentType;
+    payload: VoteIntentPayload | NightActionIntentPayload | Record<string, unknown>;
+    clientTimestamp: string;
+  };
 }

@@ -25,8 +25,10 @@ export function toSessionView(session: GameState): SessionView {
   return {
     gameId: session.gameId,
     lobbyCode: session.lobbyCode,
+    status: session.status,
     phase: session.phase,
     cycle: session.cycle,
+    currentPhaseEndsAt: session.timers.currentPhaseEndsAt,
     players: Object.values(session.players).map((player) => ({
       playerId: player.playerId,
       displayName: player.displayName,

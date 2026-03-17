@@ -2,9 +2,14 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import {
+  IntentType,
+  Phase,
+  SessionStatus,
+  Team,
   SOCKET_EVENTS,
   SOCKET_NAMESPACE,
   type ClientCommandAcks,
+  type ClientCommandPayloads,
   type LobbyCommandSuccess,
   type LobbyView,
   type SessionView,
@@ -245,6 +250,36 @@ describe('registerFoundationNamespace', () => {
     }
 
     return ack.data;
+  }
+
+  async function startGameWithMinimumPlayers(
+    hostSocket: ClientSocket,
+    host: LobbyCommandSuccess,
+  ) {
+    for (let index = 0; index < 6; index += 1) {
+      const { socket: playerSocket } = await connectClient();
+      await joinLobby(playerSocket, host.lobby.code, `Player${index + 2}`);
+    }
+
+    const startAck = await emitAck(hostSocket, SOCKET_EVENTS.client.startGame, {
+      lobbyCode: host.lobby.code,
+      actorPlayerId: host.playerId,
+      reconnectToken: host.reconnectToken,
+    });
+
+    expect(startAck.ok).toBe(true);
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+
+    return startAck.data;
+  }
+
+  async function submitIntent(
+    socket: ClientSocket,
+    payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.submitIntent],
+  ): Promise<ClientCommandAcks[typeof SOCKET_EVENTS.client.submitIntent]> {
+    return emitAck(socket, SOCKET_EVENTS.client.submitIntent, payload);
   }
 
   beforeEach(async () => {
@@ -561,6 +596,268 @@ describe('registerFoundationNamespace', () => {
       const player = lobby?.players.find((entry) => entry.playerId === joined.playerId);
       return player?.connected === false && player.alive === true;
     });
+  });
+
+  it('validates submit-intent phase rules, duplicate vote, and SEND_MESSAGE deferral', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+    const start = await startGameWithMinimumPlayers(host, created);
+
+    const session = await runtimeRepository.getSession(start.session.gameId);
+    expect(session).not.toBeNull();
+    if (!session) {
+      throw new Error('Session was not found.');
+    }
+
+    session.phase = Phase.DAY_OPEN;
+    session.timers.currentPhaseEndsAt = '2099-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(session);
+
+    const outsidePhaseAck = await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: start.session.gameId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: null },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(outsidePhaseAck.ok).toBe(false);
+    if (!outsidePhaseAck.ok) {
+      expect(outsidePhaseAck.error.code).toBe('INTENT_NOT_ALLOWED_IN_PHASE');
+    }
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2099-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(session);
+
+    const firstVoteAck = await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: start.session.gameId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: null },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(firstVoteAck.ok).toBe(true);
+
+    const secondVoteAck = await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: start.session.gameId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: null },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(secondVoteAck.ok).toBe(false);
+    if (!secondVoteAck.ok) {
+      expect(secondVoteAck.error.code).toBe('VOTE_ALREADY_SUBMITTED');
+    }
+
+    session.phase = Phase.DAY_OPEN;
+    session.timers.currentPhaseEndsAt = '2099-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(session);
+
+    const sendMessageAck = await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: start.session.gameId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'global', text: 'hello' },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(sendMessageAck.ok).toBe(false);
+    if (!sendMessageAck.ok) {
+      expect(sendMessageAck.error.code).toBe('NOT_IMPLEMENTED');
+    }
+  });
+
+  it('reconciles expired DAY_VOTE, advances phase, and applies vote elimination', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+
+    const voters: Array<{ socket: ClientSocket; player: LobbyCommandSuccess }> = [
+      { socket: host, player: created },
+    ];
+    for (let index = 0; index < 6; index += 1) {
+      const connection = await connectClient();
+      const joined = await joinLobby(connection.socket, created.lobby.code, `Player${index + 2}`);
+      voters.push({ socket: connection.socket, player: joined });
+    }
+
+    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
+      lobbyCode: created.lobby.code,
+      actorPlayerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+    });
+    expect(startAck.ok).toBe(true);
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+
+    const sessionId = startAck.data.session.gameId;
+    const targetPlayerId = voters[6].player.playerId;
+    const session = await runtimeRepository.getSession(sessionId);
+    expect(session).not.toBeNull();
+    if (!session) {
+      throw new Error('Session was not found.');
+    }
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2099-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(session);
+
+    for (const voter of voters.slice(0, 4)) {
+      const voteAck = await submitIntent(voter.socket, {
+        lobbyCode: created.lobby.code,
+        gameId: sessionId,
+        playerId: voter.player.playerId,
+        reconnectToken: voter.player.reconnectToken,
+        intent: {
+          type: IntentType.SUBMIT_VOTE,
+          payload: { targetPlayerId },
+          clientTimestamp: new Date().toISOString(),
+        },
+      });
+      expect(voteAck.ok).toBe(true);
+    }
+
+    const expiredSession = await runtimeRepository.getSession(sessionId);
+    expect(expiredSession).not.toBeNull();
+    if (!expiredSession) {
+      throw new Error('Session was not found.');
+    }
+
+    expiredSession.timers.currentPhaseEndsAt = '2000-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(expiredSession);
+
+    const sessionStatePromise = onceEvent<SessionView>(host, SOCKET_EVENTS.server.sessionState);
+    await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: sessionId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'global', text: 'trigger reconcile' },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    await sessionStatePromise;
+
+    const updated = await runtimeRepository.getSession(sessionId);
+    expect(updated?.players[targetPlayerId]?.alive).toBe(false);
+    expect(updated?.phase).toBe(Phase.DAY_RESOLVE);
+    expect(updated?.pendingIntents.some((intent) => intent.type === IntentType.SUBMIT_VOTE)).toBe(
+      false,
+    );
+  });
+
+  it('marks terminal game state and blocks further intents', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+
+    const participants: Array<{ socket: ClientSocket; player: LobbyCommandSuccess }> = [
+      { socket: host, player: created },
+    ];
+    for (let index = 0; index < 6; index += 1) {
+      const connection = await connectClient();
+      const joined = await joinLobby(connection.socket, created.lobby.code, `Player${index + 2}`);
+      participants.push({ socket: connection.socket, player: joined });
+    }
+
+    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
+      lobbyCode: created.lobby.code,
+      actorPlayerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+    });
+    expect(startAck.ok).toBe(true);
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+
+    const sessionId = startAck.data.session.gameId;
+    const session = await runtimeRepository.getSession(sessionId);
+    expect(session).not.toBeNull();
+    if (!session) {
+      throw new Error('Session was not found.');
+    }
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2099-01-01T00:00:00.000Z';
+    for (const player of Object.values(session.players)) {
+      player.team = Team.FRIENDS;
+    }
+    const loneHackerId = participants[6].player.playerId;
+    session.players[loneHackerId].team = Team.HACKERS;
+    await runtimeRepository.saveSession(session);
+
+    for (const voter of participants.slice(0, 4)) {
+      const voteAck = await submitIntent(voter.socket, {
+        lobbyCode: created.lobby.code,
+        gameId: sessionId,
+        playerId: voter.player.playerId,
+        reconnectToken: voter.player.reconnectToken,
+        intent: {
+          type: IntentType.SUBMIT_VOTE,
+          payload: { targetPlayerId: loneHackerId },
+          clientTimestamp: new Date().toISOString(),
+        },
+      });
+      expect(voteAck.ok).toBe(true);
+    }
+
+    const expired = await runtimeRepository.getSession(sessionId);
+    expect(expired).not.toBeNull();
+    if (!expired) {
+      throw new Error('Session was not found.');
+    }
+
+    expired.timers.currentPhaseEndsAt = '2000-01-01T00:00:00.000Z';
+    await runtimeRepository.saveSession(expired);
+
+    await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: sessionId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'global', text: 'trigger reconcile' },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+
+    const ended = await runtimeRepository.getSession(sessionId);
+    expect(ended?.status).toBe(SessionStatus.FRIENDS_WIN);
+
+    const blockedAck = await submitIntent(host, {
+      lobbyCode: created.lobby.code,
+      gameId: sessionId,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      intent: {
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'SCAN', targetPlayerId: null, metadata: {} },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+
+    expect(blockedAck.ok).toBe(false);
+    if (!blockedAck.ok) {
+      expect(blockedAck.error.code).toBe('GAME_NOT_ACTIVE');
+    }
   });
 
   it('emits session state on start game', async () => {

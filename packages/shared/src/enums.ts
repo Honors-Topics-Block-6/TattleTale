@@ -35,3 +35,14 @@ export enum LobbyStatus {
   IN_GAME = 'IN_GAME',
   CLOSED = 'CLOSED',
 }
+
+export enum Team {
+  FRIENDS = 'FRIENDS',
+  HACKERS = 'HACKERS',
+}
+
+export enum SessionStatus {
+  ACTIVE = 'ACTIVE',
+  FRIENDS_WIN = 'FRIENDS_WIN',
+  HACKERS_WIN = 'HACKERS_WIN',
+}

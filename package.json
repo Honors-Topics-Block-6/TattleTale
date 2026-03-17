@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run dev:web & npm run dev:server",
     "build": "npm run build:shared && npm run build -w @tattletale/server",
     "build:shared": "npm run build -w @tattletale/shared",
     "build:server": "npm run build -w @tattletale/server",
