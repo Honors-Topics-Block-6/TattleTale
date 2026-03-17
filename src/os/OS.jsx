@@ -5,6 +5,7 @@ import Taskbar from './components/Taskbar/Taskbar';
 import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
+import RealLifeTaskPrompts from './components/RealLifeTaskPrompts';
 
 import '../themes/xp/index.css';
 
@@ -58,6 +59,7 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       <Taskbar />
       <StartMenu />
       <ContextMenu />
+      <RealLifeTaskPrompts />
     </div>
   );
 }
