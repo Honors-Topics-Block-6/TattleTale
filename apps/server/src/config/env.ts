@@ -11,8 +11,8 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   WEB_ORIGIN: z.string().min(1).default('http://localhost:5173'),
-  DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
+  DATABASE_URL: z.string().min(1).optional(),
+  REDIS_URL: z.string().min(1).optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev:web",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:server\"",
     "build": "npm run build:shared && npm run build -w @tattletale/server",
     "build:shared": "npm run build -w @tattletale/shared",
     "build:server": "npm run build -w @tattletale/server",
@@ -25,6 +25,7 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "typescript": "^5.9.2"
   }
 }

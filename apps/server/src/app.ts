@@ -1,20 +1,17 @@
 import cors from '@fastify/cors';
-import type { PrismaClient } from '@prisma/client';
-import type { Redis } from 'ioredis';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { Server as SocketIOServer } from 'socket.io';
 
 import type { AppConfig } from './config/env.js';
-import { PrismaGameAuditRepository } from './infra/persistence/prisma-game-audit-repository.js';
-import { RedisRuntimeRepository } from './infra/persistence/redis-runtime-repository.js';
+import type { GameAuditRepository, RuntimeRepository } from './domain/repositories.js';
 import { registerOperationalRoutes, type HealthChecker } from './transport/http/register-operational-routes.js';
 import { registerFoundationNamespace } from './transport/socket/register-foundation-namespace.js';
 
 export interface AppDependencies {
   config: AppConfig;
-  prisma: PrismaClient;
-  redis: Redis;
   healthChecker: HealthChecker;
+  runtimeRepository: RuntimeRepository;
+  auditRepository: GameAuditRepository;
 }
 
 export interface AppWithRealtime {
@@ -46,8 +43,8 @@ export async function createApp(
   });
 
   registerFoundationNamespace(io, fastify.log, {
-    runtimeRepository: new RedisRuntimeRepository(dependencies.redis),
-    auditRepository: new PrismaGameAuditRepository(dependencies.prisma),
+    runtimeRepository: dependencies.runtimeRepository,
+    auditRepository: dependencies.auditRepository,
   });
 
   fastify.addHook('onClose', async () => {
