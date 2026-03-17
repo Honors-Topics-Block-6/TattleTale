@@ -21,6 +21,17 @@
     "redis:del": "npm run redis:del -w @tattletale/server --",
     "redis:del-pattern": "npm run redis:del-pattern -w @tattletale/server --"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ambitious-Jay/TattleTale.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ambitious-Jay/TattleTale/issues"
+  },
+  "homepage": "https://github.com/Ambitious-Jay/TattleTale#readme",
   "engines": {
     "node": ">=20.0.0"
   },
