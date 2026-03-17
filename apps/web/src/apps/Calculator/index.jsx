@@ -6,13 +6,23 @@ function CalculatorComponent({ windowId }) {
   const [firstOperand, setFirstOperand] = useState(null);
   const [operator, setOperator] = useState(null);
   const [waitingForSecond, setWaitingForSecond] = useState(false);
+  const [equation, setEquation] = useState('');
+
+  const opSymbol = (op) => ({ '+': '+', '-': '−', '*': '×', '/': '÷' }[op] || op);
 
   const inputDigit = (digit) => {
     if (waitingForSecond) {
       setDisplay(digit);
       setWaitingForSecond(false);
+      setEquation(equation + digit);
     } else {
-      setDisplay(display === '0' ? digit : display + digit);
+      const newDisplay = display === '0' ? digit : display + digit;
+      setDisplay(newDisplay);
+      if (operator !== null) {
+        setEquation(String(firstOperand) + ' ' + opSymbol(operator) + ' ' + newDisplay);
+      } else {
+        setEquation(newDisplay);
+      }
     }
   };
 
@@ -20,10 +30,17 @@ function CalculatorComponent({ windowId }) {
     if (waitingForSecond) {
       setDisplay('0.');
       setWaitingForSecond(false);
+      setEquation(equation + '0.');
       return;
     }
     if (!display.includes('.')) {
-      setDisplay(display + '.');
+      const newDisplay = display + '.';
+      setDisplay(newDisplay);
+      if (operator !== null) {
+        setEquation(String(firstOperand) + ' ' + opSymbol(operator) + ' ' + newDisplay);
+      } else {
+        setEquation(newDisplay);
+      }
     }
   };
 
@@ -32,6 +49,18 @@ function CalculatorComponent({ windowId }) {
     setFirstOperand(null);
     setOperator(null);
     setWaitingForSecond(false);
+    setEquation('');
+  };
+
+  const handleBackspace = () => {
+    if (waitingForSecond) return;
+    const newDisplay = display.slice(0, -1) || '0';
+    setDisplay(newDisplay);
+    if (operator !== null) {
+      setEquation(String(firstOperand) + ' ' + opSymbol(operator) + ' ' + (newDisplay === '0' ? '' : newDisplay));
+    } else {
+      setEquation(newDisplay === '0' ? '' : newDisplay);
+    }
   };
 
   const performOperation = (nextOperator) => {
@@ -39,10 +68,12 @@ function CalculatorComponent({ windowId }) {
 
     if (firstOperand === null) {
       setFirstOperand(inputValue);
+      setEquation(display + ' ' + opSymbol(nextOperator) + ' ');
     } else if (operator) {
       const result = calculate(firstOperand, inputValue, operator);
       setDisplay(String(result));
       setFirstOperand(result);
+      setEquation(String(result) + ' ' + opSymbol(nextOperator) + ' ');
     }
 
     setWaitingForSecond(true);
@@ -61,7 +92,9 @@ function CalculatorComponent({ windowId }) {
 
   const handleEquals = () => {
     if (operator && firstOperand !== null) {
-      const result = calculate(firstOperand, parseFloat(display), operator);
+      const second = parseFloat(display);
+      const result = calculate(firstOperand, second, operator);
+      setEquation(String(firstOperand) + ' ' + opSymbol(operator) + ' ' + display + ' =');
       setDisplay(String(result));
       setFirstOperand(null);
       setOperator(null);
@@ -94,6 +127,21 @@ function CalculatorComponent({ windowId }) {
       display: 'flex',
       flexDirection: 'column',
     }}>
+      <div style={{
+        width: '100%',
+        height: '16px',
+        marginBottom: '2px',
+        textAlign: 'right',
+        padding: '0 4px',
+        fontFamily: 'Lucida Console, monospace',
+        fontSize: '10px',
+        color: '#666',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        boxSizing: 'border-box',
+      }}>
+        {equation}
+      </div>
       <input
         type="text"
         value={display}
@@ -112,7 +160,7 @@ function CalculatorComponent({ windowId }) {
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>
         <button style={buttonStyle} onClick={clear}>C</button>
-        <button style={buttonStyle} onClick={() => setDisplay(display.slice(0, -1) || '0')}>←</button>
+        <button style={buttonStyle} onClick={handleBackspace}>←</button>
         <button style={buttonStyle} disabled>%</button>
         <button style={operatorStyle} onClick={() => performOperation('/')}>÷</button>
 
@@ -164,10 +212,10 @@ const Calculator = {
   component: CalculatorComponent,
   defaultWindow: {
     width: 220,
-    height: 260,
+    height: 280,
     resizable: false,
     minWidth: 220,
-    minHeight: 260,
+    minHeight: 280,
   },
   menuBar: {
     items: [
