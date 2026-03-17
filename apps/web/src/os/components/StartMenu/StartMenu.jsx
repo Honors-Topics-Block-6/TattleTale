@@ -3,9 +3,11 @@ import useMenuStore from '../../store/menuStore';
 import StartMenuItem from './StartMenuItem';
 import { getStartMenuApps } from '../../config/apps.config';
 
+
 export default function StartMenu() {
   const startMenuOpen = useMenuStore((state) => state.startMenuOpen);
   const closeStartMenu = useMenuStore((state) => state.closeStartMenu);
+  const openPowerDialog = useMenuStore((state) => state.openPowerDialog);
   const menuRef = useRef(null);
 
   const { programs, places } = getStartMenuApps();
@@ -90,10 +92,10 @@ export default function StartMenu() {
       </div>
 
       <div className="xp-startmenu-footer">
-        <button>
+        <button onClick={() => openPowerDialog('logoff')}>
           <span>Log Off</span>
         </button>
-        <button>
+        <button onClick={() => openPowerDialog('shutdown')}>
           <span>Shut Down</span>
         </button>
       </div>

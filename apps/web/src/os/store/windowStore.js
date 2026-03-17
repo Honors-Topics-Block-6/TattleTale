@@ -154,6 +154,13 @@ const useWindowStore = create(
     getAllWindows: () => {
       return Object.values(get().windows);
     },
+
+    closeAllWindows: () => {
+      set((state) => {
+        state.windows = {};
+        state.activeWindowId = null;
+      });
+    },
   }))
 );
 

@@ -1,10 +1,13 @@
+import { useEffect } from 'react';
 import useWindowStore from './store/windowStore';
+import useMenuStore from './store/menuStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
 import Taskbar from './components/Taskbar/Taskbar';
 import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
+import PowerDialog from './components/PowerDialog/PowerDialog';
 
 import '../themes/xp/index.css';
 
@@ -33,8 +36,104 @@ const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
   </svg>
 `);
 
+const osScreenStyles = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 999999,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'Tahoma, sans-serif',
+  },
+  shuttingdown: {
+    background: '#000',
+    color: '#fff',
+  },
+  restarting: {
+    background: '#000',
+    color: '#fff',
+  },
+  standby: {
+    background: '#000',
+    cursor: 'pointer',
+  },
+  logoff: {
+    background: 'linear-gradient(180deg, #1a3a8f 0%, #0a1a5f 100%)',
+    color: '#fff',
+  },
+  welcome: {
+    background: 'linear-gradient(180deg, #1a3a8f 0%, #0a1a5f 100%)',
+    color: '#fff',
+  },
+};
+
+function OsScreen({ screen, onDismissStandby, onDismissWelcome }) {
+  if (screen === 'desktop') return null;
+
+  if (screen === 'standby') {
+    return (
+      <div
+        style={{ ...osScreenStyles.overlay, ...osScreenStyles.standby }}
+        onClick={onDismissStandby}
+        title="Click to wake"
+      />
+    );
+  }
+
+  if (screen === 'shuttingdown') {
+    return (
+      <div style={{ ...osScreenStyles.overlay, ...osScreenStyles.shuttingdown }}>
+        <div style={{ marginBottom: '32px', fontSize: '28px' }}>💻</div>
+        <div style={{ fontSize: '16px', marginBottom: '8px' }}>Windows is shutting down...</div>
+        <div style={{ fontSize: '11px', color: '#aaa' }}>Please wait</div>
+      </div>
+    );
+  }
+
+  if (screen === 'restarting') {
+    return (
+      <div style={{ ...osScreenStyles.overlay, ...osScreenStyles.restarting }}>
+        <div style={{ marginBottom: '32px', fontSize: '28px' }}>🔄</div>
+        <div style={{ fontSize: '16px', marginBottom: '8px' }}>Windows is restarting...</div>
+        <div style={{ fontSize: '11px', color: '#aaa' }}>Please wait</div>
+      </div>
+    );
+  }
+
+  if (screen === 'logoff') {
+    return (
+      <div style={{ ...osScreenStyles.overlay, ...osScreenStyles.logoff }}>
+        <div style={{ marginBottom: '16px', fontSize: '48px' }}>👤</div>
+        <div style={{ fontSize: '14px', marginBottom: '4px' }}>Saving your settings...</div>
+        <div style={{ fontSize: '11px', color: '#aab' }}>Logging off User</div>
+      </div>
+    );
+  }
+
+  if (screen === 'welcome') {
+    return (
+      <div style={{ ...osScreenStyles.overlay, ...osScreenStyles.welcome }} onClick={onDismissWelcome}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ fontSize: '13px', letterSpacing: '2px', color: '#aac', marginBottom: '4px' }}>Microsoft</div>
+          <div style={{ fontSize: '28px', fontWeight: 'bold', letterSpacing: '1px' }}>Windows</div>
+          <div style={{ fontSize: '14px', color: '#7af', marginTop: '2px' }}>XP</div>
+        </div>
+        <div style={{ marginBottom: '32px', fontSize: '56px' }}>👤</div>
+        <div style={{ fontSize: '14px', marginBottom: '6px' }}>User</div>
+        <div style={{ fontSize: '11px', color: '#aab', marginTop: '24px' }}>Click to log on</div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
+  const osScreen = useMenuStore((s) => s.osScreen);
+  const setOsScreen = useMenuStore((s) => s.setOsScreen);
 
   const windowList = Object.values(windows);
 
@@ -58,6 +157,12 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       <Taskbar />
       <StartMenu />
       <ContextMenu />
+      <PowerDialog />
+      <OsScreen
+        screen={osScreen}
+        onDismissStandby={() => setOsScreen('desktop')}
+        onDismissWelcome={() => setOsScreen('desktop')}
+      />
     </div>
   );
 }
