@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 build/
+.tsbuildinfo
 
 # Vite
 *.local
@@ -34,6 +35,7 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # Testing
 coverage/
