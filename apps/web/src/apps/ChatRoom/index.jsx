@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { SOCKET_EVENTS, SOCKET_NAMESPACE } from '@tattletale/shared';
 import useAppMenu from '../../os/hooks/useAppMenu';
 import useMenuStore from '../../os/store/menuStore';
 import './chatRoom.css';
 
-const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:4000';
+// Default matches `apps/server` env default (`PORT` defaults to 3001).
+const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:3001';
 const DEFAULT_SESSION_ID = 'tattletale-room-1';
 const STORAGE_KEY = 'tattletale-chat-identity';
 
@@ -86,8 +88,10 @@ function ChatRoomComponent({ windowId }) {
     if (connecting) return;
 
     if (!socketRef.current) {
-      socketRef.current = io(CHAT_SERVER_URL, {
-        transports: ['websocket'],
+      // Server registers the realtime handlers under `SOCKET_NAMESPACE` (default: `/session`).
+      socketRef.current = io(`${CHAT_SERVER_URL}${SOCKET_NAMESPACE}`, {
+        // Let Socket.IO negotiate the best transport (websocket-first can fail
+        // if the server/client don't fully agree on protocol details).
         autoConnect: false,
         reconnection: true,
       });
@@ -96,9 +100,6 @@ function ChatRoomComponent({ windowId }) {
     const socket = socketRef.current;
     setConnecting(true);
     setError(`Connecting to ${CHAT_SERVER_URL}...`);
-    if (!socket.connected) {
-      socket.connect();
-    }
 
     socket.off('connect');
     socket.off('disconnect');
@@ -116,14 +117,12 @@ function ChatRoomComponent({ windowId }) {
       setConnected(true);
       setConnecting(false);
       setError('');
-      socket.emit('intent', {
-        type: 'JOIN_SESSION',
-        timestamp: Date.now(),
-        payload: {
-          sessionId: sessionId.trim(),
-          username: username.trim(),
-          reconnectToken: identityRef.current.reconnectToken,
-        },
+
+      // Minimal compatibility with the current server skeleton:
+      // treat `sessionId` as `lobbyCode` and use joinLobby.
+      socket.emit(SOCKET_EVENTS.client.joinLobby, {
+        lobbyCode: sessionId.trim(),
+        displayName: username.trim(),
       });
     });
 
@@ -138,72 +137,54 @@ function ChatRoomComponent({ windowId }) {
       });
     });
 
-    socket.on('session.snapshot', (snapshot) => {
+    // When using the foundation namespace events, the server emits lobby/session state.
+    // This app UI will at least stop "Connecting..." once we get a lobby state.
+    socket.on(SOCKET_EVENTS.server.lobbyState, (lobbyView) => {
       setJoined(true);
       setConnecting(false);
-      setPhase(snapshot.phase);
-      setChannels(snapshot.channels || []);
-      setUsers(snapshot.users || []);
-      setMessagesByChannel(snapshot.messagesByChannel || {});
-      setEvents(snapshot.systemEvents || []);
-      setActiveChannelId(snapshot.activeChannelId || 'global');
-      storeIdentity({
-        reconnectToken: snapshot.reconnectToken,
-        playerId: snapshot.playerId,
-        username: username.trim(),
-      });
+      setPhase(lobbyView?.status || 'LOBBY');
+      setError('');
+
+      // The foundation skeleton doesn't provide chat messages yet; keep UI stable.
+      setChannels([]);
+      setUsers([]);
+      setMessagesByChannel({});
+      setEvents([]);
+      setActiveChannelId('global');
     });
 
-    socket.on('chat.message', (message) => {
-      setMessagesByChannel((prev) => {
-        const list = prev[message.channelId] || [];
-        return {
-          ...prev,
-          [message.channelId]: [...list, message].slice(-200),
-        };
-      });
-    });
-
-    socket.on('system.event', (event) => {
-      pushEvent(event);
-    });
-
-    socket.on('channel.available', (channel) => {
-      setChannels((prev) => {
-        const exists = prev.some((item) => item.id === channel.id);
-        if (exists) return prev;
-        return [...prev, channel];
-      });
-    });
-
-    socket.on('channel.switched', (payload) => {
-      setActiveChannelId(payload.channelId);
-    });
-
-    socket.on('user.presence', (presencePayload) => {
-      setUsers(presencePayload.users || []);
-    });
-
-    socket.on('intent.rejected', (reason) => {
-      setError(reason.message || 'Intent rejected by server.');
-      pushEvent({
-        id: `reject-${Date.now()}`,
-        type: 'INTENT_REJECTED',
-        summary: reason.message || 'Action rejected',
-        timestamp: Date.now(),
-      });
-    });
-
-    socket.on('session.error', (sessionError) => {
+    socket.on(SOCKET_EVENTS.server.commandError, (commandError) => {
       setConnecting(false);
-      setError(sessionError.message || 'Unable to join session.');
+      const code = commandError?.code;
+      // If the requested lobby doesn't exist yet, fall back to creating it.
+      if (code === 'LOBBY_NOT_FOUND') {
+        socket.emit(SOCKET_EVENTS.client.createLobby, {
+          displayName: username.trim(),
+          settings: undefined,
+        });
+        return;
+      }
+      setError(commandError?.message || 'Command failed. Check lobby/session inputs.');
     });
 
     socket.on('connect_error', (connectError) => {
       setConnecting(false);
       setConnected(false);
-      setError(connectError?.message || `Could not connect to ${CHAT_SERVER_URL}. Is the chat server running?`);
+      const baseMessage =
+        connectError?.message || 'Socket.IO connection failed.';
+      setError(
+        `${baseMessage} Could not connect to ${CHAT_SERVER_URL}. ` +
+          `Is the chat server running on that port? ` +
+          `If not, set VITE_CHAT_SERVER_URL.`
+      );
     });
+
+    // Register handlers before triggering the connection. Otherwise, a fast
+    // successful handshake can happen before listeners are attached, leaving
+    // the UI stuck on "Connecting...".
+    if (!socket.connected) {
+      socket.connect();
+    }
   };
 
   const sendIntent = (type, payload) => {
