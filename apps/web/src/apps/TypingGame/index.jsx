@@ -186,6 +186,9 @@ const TypingGame = {
     section: 'programs',
     description: 'Test your typing accuracy',
   },
+  install: {
+    requiresUnlock: true,
+  },
 };
 
 export default TypingGame;

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { v4 as uuidv4 } from 'uuid';
+import useDialogStore from './dialogStore';
 
 const TASKBAR_HEIGHT = 40;
 
@@ -50,6 +51,8 @@ const useWindowStore = create(
 
     closeWindow: (id) => {
       set((state) => {
+        // Dialog payloads are keyed by window id; clear when window closes.
+        useDialogStore.getState().clearDialog(id);
         delete state.windows[id];
         if (state.activeWindowId === id) {
           // Find the next highest z-index window
@@ -144,6 +147,14 @@ const useWindowStore = create(
           if (x !== undefined) win.x = x;
           if (y !== undefined) win.y = y;
         }
+      });
+    },
+
+    updateWindow: (id, patch) => {
+      set((state) => {
+        const win = state.windows[id];
+        if (!win) return;
+        Object.assign(win, patch);
       });
     },
 
