@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import DesktopIcon from './DesktopIcon';
 import useContextMenu from '../../hooks/useContextMenu';
 import useMenuStore from '../../store/menuStore';
 import { getDesktopApps } from '../../config/apps.config';
 
 export default function Desktop({ wallpaper }) {
+  const [selectedAppId, setSelectedAppId] = useState(null);
   const closeAllMenus = useMenuStore((state) => state.closeAllMenus);
   const desktopApps = useMemo(() => getDesktopApps(), []);
 
@@ -45,6 +46,7 @@ export default function Desktop({ wallpaper }) {
 
   const handleClick = () => {
     closeAllMenus();
+    setSelectedAppId(null);
   };
 
   return (
@@ -61,6 +63,8 @@ export default function Desktop({ wallpaper }) {
             appId={app.id}
             name={app.name}
             icon={app.icon}
+            selected={selectedAppId === app.id}
+            onSelect={setSelectedAppId}
           />
         ))}
       </div>

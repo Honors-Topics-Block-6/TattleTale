@@ -5,8 +5,7 @@ import { READY_PREFIX, STORAGE_KEY } from '../../../lib/sessionConstants';
 import useWindowStore from '../../store/windowStore';
 import { getAppConfig } from '../../config/apps.config';
 
-export default function DesktopIcon({ appId, name, icon }) {
-  const [selected, setSelected] = useState(false);
+export default function DesktopIcon({ appId, name, icon, selected, onSelect }) {
   const createWindow = useWindowStore((state) => state.createWindow);
   const focusWindow = useWindowStore((state) => state.focusWindow);
   const getAllWindows = useWindowStore((state) => state.getAllWindows);
@@ -69,6 +68,7 @@ export default function DesktopIcon({ appId, name, icon }) {
     }
 
     setSelected(true);
+    onSelect?.(appId);
   };
 
   const handleDoubleClick = (e) => {
@@ -88,14 +88,27 @@ export default function DesktopIcon({ appId, name, icon }) {
       }
     }
 
+    onSelect?.(appId);
     const appConfig = getAppConfig(appId);
     if (appConfig) {
       createWindow(appId, appConfig);
     }
   };
 
-  const handleBlur = () => {
-    setSelected(false);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === 'NumpadEnter') {
+      e.preventDefault();
+      const appConfig = getAppConfig(appId);
+      if (appConfig) {
+        createWindow(appId, appConfig);
+      }
+      return;
+    }
+
+    if (e.key === ' ') {
+      e.preventDefault();
+      onSelect?.(appId);
+    }
   };
 
   // Default icon if none provided
@@ -115,8 +128,11 @@ export default function DesktopIcon({ appId, name, icon }) {
       className={`xp-desktop-icon ${selected ? 'selected' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      onFocus={() => onSelect?.(appId)}
       tabIndex={0}
+      role="button"
+      aria-label={name}
     >
       <img src={iconSrc} alt={name} draggable={false} />
       <span>{name}</span>
