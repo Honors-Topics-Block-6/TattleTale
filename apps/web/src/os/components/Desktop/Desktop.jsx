@@ -3,10 +3,20 @@ import DesktopIcon from './DesktopIcon';
 import useContextMenu from '../../hooks/useContextMenu';
 import useMenuStore from '../../store/menuStore';
 import { getDesktopApps } from '../../config/apps.config';
+import useInstallStore from '../../store/installStore';
 
 export default function Desktop({ wallpaper }) {
   const closeAllMenus = useMenuStore((state) => state.closeAllMenus);
-  const desktopApps = useMemo(() => getDesktopApps(), []);
+  const installedAppIds = useInstallStore((state) => state.installedAppIds);
+
+  const desktopApps = useMemo(() => {
+    return getDesktopApps().filter((app) => {
+      if (app.install?.requiresUnlock) {
+        return installedAppIds.includes(app.id);
+      }
+      return true;
+    });
+  }, [installedAppIds]);
 
   const contextMenuItems = [
     { id: 'refresh', label: 'Refresh', action: () => window.location.reload() },

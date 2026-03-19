@@ -1,14 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import useMenuStore from '../../store/menuStore';
 import StartMenuItem from './StartMenuItem';
 import { getStartMenuApps } from '../../config/apps.config';
+import useInstallStore from '../../store/installStore';
 
 export default function StartMenu() {
   const startMenuOpen = useMenuStore((state) => state.startMenuOpen);
   const closeStartMenu = useMenuStore((state) => state.closeStartMenu);
   const menuRef = useRef(null);
 
+  const installedAppIds = useInstallStore((state) => state.installedAppIds);
   const { programs, places } = getStartMenuApps();
+  const visiblePrograms = useMemo(() => {
+    return programs.filter((app) => {
+      if (app.install?.requiresUnlock) {
+        return installedAppIds.includes(app.id);
+      }
+      return true;
+    });
+  }, [programs, installedAppIds]);
 
   // User avatar placeholder
   const userAvatar = 'data:image/svg+xml,' + encodeURIComponent(`
@@ -56,13 +66,13 @@ export default function StartMenu() {
 
       <div className="xp-startmenu-content">
         <div className="xp-startmenu-left">
-          {programs.map((app) => (
+          {visiblePrograms.map((app) => (
             <StartMenuItem
               key={app.id}
               appId={app.id}
               name={app.name}
               icon={app.icon}
-              description={app.description}
+              description={app.startMenu?.description}
             />
           ))}
           <div className="xp-startmenu-separator" />

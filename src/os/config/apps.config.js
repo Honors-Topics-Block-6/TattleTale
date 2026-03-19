@@ -5,6 +5,7 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import Tertys from '../../apps/Tertys';
+import AngryBirds from '../../apps/AngryBirds';
 import TypingGame from '../../apps/TypingGame';
 
 // Registry of all available apps
@@ -13,6 +14,7 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [Tertys.id]: Tertys,
+  [AngryBirds.id]: AngryBirds,
   [TypingGame.id]: TypingGame,
 };
 

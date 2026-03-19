@@ -66,6 +66,7 @@ const ATTENTION_TASKS = [
     correctIndex: 2,
   },
 ];
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
   const windowList = Object.values(windows);
@@ -132,6 +133,8 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       // Case-sensitive comparison to make it feel precise
       const success = target === answer;
 
+      // We keep the task around so the modal can show success/fail,
+      // and let the user close it.
       setSideTask((prev) =>
         prev
           ? {
@@ -168,15 +171,16 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     setSideTask(null);
   };
 
-  const activeSideTask = useMemo(
-    () =>
-      sideTask &&
-      (sideTask.type === 'TYPING_SENTENCE' ||
-        sideTask.type === 'ATTENTION_CHECK')
-        ? sideTask
-        : null,
-    [sideTask]
-  );
+  const activeSideTask = useMemo(() => {
+    if (!sideTask) return null;
+    if (
+      sideTask.type === 'TYPING_SENTENCE' ||
+      sideTask.type === 'ATTENTION_CHECK'
+    ) {
+      return sideTask;
+    }
+    return null;
+  }, [sideTask]);
 
   return (
     <div className="xp-os">
@@ -209,4 +213,3 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     </div>
   );
 }
-
