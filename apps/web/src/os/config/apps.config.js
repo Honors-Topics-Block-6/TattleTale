@@ -6,6 +6,7 @@ import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import TypingGame from '../../apps/TypingGame';
 import Milestone2048 from '../../apps/Milestone2048';
+import AngryBirds from '../../apps/AngryBirds';
 
 // Registry of all available apps
 const appRegistry = {
@@ -14,6 +15,7 @@ const appRegistry = {
   [Calculator.id]: Calculator,
   [TypingGame.id]: TypingGame,
   [Milestone2048.id]: Milestone2048,
+  [AngryBirds.id]: AngryBirds,
 };
 
 // Default folder icon
