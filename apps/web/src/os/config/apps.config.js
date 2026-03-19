@@ -5,6 +5,7 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import TypingGame from '../../apps/TypingGame';
+import TattleTaleGuide from '../../apps/TattleTaleGuide';
 
 // Registry of all available apps
 const appRegistry = {
@@ -12,6 +13,7 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [TypingGame.id]: TypingGame,
+  [TattleTaleGuide.id]: TattleTaleGuide,
 };
 
 // Default folder icon
