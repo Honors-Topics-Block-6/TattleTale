@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -6,12 +6,14 @@ import Taskbar from './components/Taskbar/Taskbar';
 import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
-import useInstallStore from './store/installStore';
+import SideTaskModal from './components/SideTaskModal';
 
 import '../themes/xp/index.css';
 
 // Default XP wallpaper (bliss-like gradient)
-const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
+const defaultWallpaper =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
     <defs>
       <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -35,16 +37,161 @@ const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
   </svg>
 `);
 
+// Sentences for the typing mini-game
+const TYPING_SENTENCES = [
+  'The signal is weak but real.',
+  'Trust the pattern, not the noise.',
+  'Someone is definitely hiding something.',
+  'You are being watched, stay calm.',
+  'Every message leaves a trace.',
+  'Silence can be louder than words.',
+];
+
+// Simple attention-check tasks (odd-one-out style)
+const ATTENTION_TASKS = [
+  {
+    message: 'Tap the item that does NOT belong with the others.',
+    prompt: 'One of these is pure distraction.',
+    options: ['vote', 'night', 'message', 'banana'],
+    correctIndex: 3,
+  },
+  {
+    message: 'Tap the word that does NOT contain the letter "e".',
+    prompt: 'Only one of these words is missing the letter "e".',
+    options: ['code', 'vote', 'night', 'message'],
+    correctIndex: 2,
+  },
+  {
+    message: 'Tap the item that is NOT a phase of the game.',
+    prompt: 'Think about the flow of a TattleTale round.',
+    options: ['day', 'night', 'weekend', 'vote'],
+    correctIndex: 2,
+  },
+];
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
-  const syncFromServer = useInstallStore((state) => state.syncFromServer);
+  const createWindow = useWindowStore((state) => state.createWindow);
 
   const windowList = Object.values(windows);
 
+  // Side tasks: typing + attention-check + open-2048
+  const [sideTask, setSideTask] = useState(null);
+
+  // Randomly schedule notification pings for side tasks
   useEffect(() => {
-    // Best-effort: if server is up, treat it as source of truth.
-    syncFromServer?.().catch(() => {});
-  }, [syncFromServer]);
+    // Do not schedule a new ping while a task is active
+    if (sideTask) return;
+
+    // Wait between 20s and 40s before next ping
+    const minDelay = 20000;
+    const maxDelay = 40000;
+    const delay = Math.floor(Math.random() * (maxDelay - minDelay)) + minDelay;
+
+    const timeoutId = setTimeout(() => {
+      const roll = Math.random();
+
+      if (roll < 0.45) {
+        const sentence =
+          TYPING_SENTENCES[
+            Math.floor(Math.random() * TYPING_SENTENCES.length)
+          ];
+
+        setSideTask({
+          id: String(Date.now()),
+          type: 'TYPING_SENTENCE',
+          title: 'System ping',
+          message:
+            'Type this sentence exactly to clear the interference and continue working.',
+          sentence,
+        });
+      } else if (roll < 0.85) {
+        const taskDef =
+          ATTENTION_TASKS[
+            Math.floor(Math.random() * ATTENTION_TASKS.length)
+          ];
+
+        setSideTask({
+          id: String(Date.now()),
+          type: 'ATTENTION_CHECK',
+          title: 'Focus check',
+          message: taskDef.message,
+          prompt: taskDef.prompt,
+          options: taskDef.options,
+          correctIndex: taskDef.correctIndex,
+        });
+      } else {
+        setSideTask({
+          id: String(Date.now()),
+          type: 'OPEN_2048',
+          title: 'Side distraction',
+          message: 'Open 2048 and play until you reach the next milestone.',
+        });
+      }
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [sideTask]);
+
+  const handleSideTaskSubmit = (payload) => {
+    if (!sideTask) return 'FAIL';
+
+    if (sideTask.type === 'OPEN_2048') {
+      const appId = 'milestone-2048';
+      const appConfig = getAppConfig(appId);
+      if (appConfig) createWindow(appId, appConfig);
+      return 'SUCCESS';
+    }
+
+    // Typing mini-game
+    if (sideTask.type === 'TYPING_SENTENCE') {
+      const target = sideTask.sentence.trim();
+      const answer = (payload || '').trim();
+      const success = target === answer;
+
+      setSideTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              result: success ? 'SUCCESS' : 'FAIL',
+            }
+          : prev
+      );
+
+      return success ? 'SUCCESS' : 'FAIL';
+    }
+
+    // Attention-check mini-game
+    if (sideTask.type === 'ATTENTION_CHECK') {
+      const index =
+        typeof payload === 'number'
+          ? payload
+          : payload && typeof payload.index === 'number'
+          ? payload.index
+          : -1;
+
+      const success = index === sideTask.correctIndex;
+
+      setSideTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              result: success ? 'SUCCESS' : 'FAIL',
+            }
+          : prev
+      );
+
+      return success ? 'SUCCESS' : 'FAIL';
+    }
+
+    return 'FAIL';
+  };
+
+  const handleSideTaskDismiss = () => {
+    setSideTask(null);
+  };
+
+  const activeSideTask = useMemo(() => sideTask, [sideTask]);
 
   return (
     <div className="xp-os">
@@ -66,6 +213,14 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       <Taskbar />
       <StartMenu />
       <ContextMenu />
+
+      {activeSideTask && (
+        <SideTaskModal
+          task={activeSideTask}
+          onSubmit={handleSideTaskSubmit}
+          onDismiss={handleSideTaskDismiss}
+        />
+      )}
     </div>
   );
 }
