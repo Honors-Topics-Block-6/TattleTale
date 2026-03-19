@@ -313,6 +313,78 @@ export function registerFoundationNamespace(
 
   const { runtimeRepository, auditRepository } = dependencies;
 
+  function canStartGameFromWaitingLobby(lobby: LobbyState): boolean {
+    if (lobby.status !== LobbyStatus.WAITING) {
+      return false;
+    }
+    if (lobby.players.length < lobby.settings.minPlayers) {
+      return false;
+    }
+    if (lobby.players.length > lobby.settings.maxPlayers) {
+      return false;
+    }
+    if (!lobby.players.every((lobbyPlayer) => lobbyPlayer.ready)) {
+      return false;
+    }
+    return true;
+  }
+
+  async function executeWaitingLobbyGameStart(lobby: LobbyState): Promise<GameState> {
+    const now = new Date().toISOString();
+    const gameId = crypto.randomUUID();
+    const session = buildSessionFromLobby(lobby, gameId, now);
+    applyFirstNightAfterGameStart(session, lobby, now);
+
+    lobby.status = LobbyStatus.IN_GAME;
+    lobby.sessionId = gameId;
+    touchLobby(lobby, now);
+
+    await runtimeRepository.saveSession(session);
+    await runtimeRepository.saveLobby(lobby);
+
+    try {
+      await auditRepository.createGameRecord({
+        gameId: session.gameId,
+        lobbyCode: lobby.code,
+        phase: session.phase,
+        cycle: session.cycle,
+        players: Object.values(session.players).map((sessionPlayer) => {
+          const lobbyPlayer = lobby.players.find(
+            (entry) => entry.playerId === sessionPlayer.playerId,
+          );
+          return {
+            playerId: sessionPlayer.playerId,
+            displayName: sessionPlayer.displayName,
+            alive: sessionPlayer.alive,
+            isHost: lobbyPlayer?.isHost ?? false,
+            roleId: sessionPlayer.roleId,
+            team: sessionPlayer.team,
+          };
+        }),
+      });
+
+      await auditRepository.appendSessionEvent({
+        gameId: session.gameId,
+        type: SystemEventType.GAME_STARTED,
+        payload: {
+          lobbyCode: lobby.code,
+          cycle: session.cycle,
+          phase: session.phase,
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, gameId: session.gameId },
+        'Failed to persist game audit records',
+      );
+    }
+
+    namespace.in(lobbyRoom(lobby.code)).socketsJoin(sessionRoom(session.gameId));
+    emitLobbyState(namespace, lobby);
+    await emitSessionStateToParticipants(namespace, runtimeRepository, session);
+    return session;
+  }
+
   async function runCommand<E extends keyof ClientCommandAcks>(
     socket: Socket,
     eventName: E,
@@ -789,7 +861,12 @@ export function registerFoundationNamespace(
             touchLobby(lobby, now);
 
             await runtimeRepository.saveLobby(lobby);
-            emitLobbyState(namespace, lobby);
+
+            if (canStartGameFromWaitingLobby(lobby)) {
+              await executeWaitingLobbyGameStart(lobby);
+            } else {
+              emitLobbyState(namespace, lobby);
+            }
 
             return commandSuccess<{ lobby: ReturnType<typeof toLobbyView> }>({
               lobby: toLobbyView(lobby),
@@ -846,59 +923,7 @@ export function registerFoundationNamespace(
               );
             }
 
-            const now = new Date().toISOString();
-            const gameId = crypto.randomUUID();
-            const session = buildSessionFromLobby(lobby, gameId, now);
-            applyFirstNightAfterGameStart(session, lobby, now);
-
-            lobby.status = LobbyStatus.IN_GAME;
-            lobby.sessionId = gameId;
-            touchLobby(lobby, now);
-
-            await runtimeRepository.saveSession(session);
-            await runtimeRepository.saveLobby(lobby);
-
-            try {
-              await auditRepository.createGameRecord({
-                gameId: session.gameId,
-                lobbyCode: lobby.code,
-                phase: session.phase,
-                cycle: session.cycle,
-                players: Object.values(session.players).map((sessionPlayer) => {
-                  const lobbyPlayer = lobby.players.find(
-                    (entry) => entry.playerId === sessionPlayer.playerId,
-                  );
-                  return {
-                    playerId: sessionPlayer.playerId,
-                    displayName: sessionPlayer.displayName,
-                    alive: sessionPlayer.alive,
-                    isHost: lobbyPlayer?.isHost ?? false,
-                    roleId: sessionPlayer.roleId,
-                    team: sessionPlayer.team,
-                  };
-                }),
-              });
-
-              await auditRepository.appendSessionEvent({
-                gameId: session.gameId,
-                type: SystemEventType.GAME_STARTED,
-                payload: {
-                  lobbyCode: lobby.code,
-                  cycle: session.cycle,
-                  phase: session.phase,
-                },
-              });
-            } catch (error) {
-              logger.error(
-                { err: error, gameId: session.gameId },
-                'Failed to persist game audit records',
-              );
-            }
-
-            namespace.in(lobbyRoom(lobby.code)).socketsJoin(sessionRoom(session.gameId));
-
-            emitLobbyState(namespace, lobby);
-            await emitSessionStateToParticipants(namespace, runtimeRepository, session);
+            const session = await executeWaitingLobbyGameStart(lobby);
 
             return commandSuccess<StartGameSuccess>({
               lobby: toLobbyView(lobby),

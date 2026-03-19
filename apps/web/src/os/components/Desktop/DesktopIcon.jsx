@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { SOCKET_EVENTS } from '@tattletale/shared';
 import { lobbySocketRef } from '../../../lib/lobbySocketRef';
+import { READY_PREFIX, STORAGE_KEY } from '../../../lib/sessionConstants';
 import useWindowStore from '../../store/windowStore';
 import { getAppConfig } from '../../config/apps.config';
 
@@ -12,7 +13,7 @@ export default function DesktopIcon({ appId, name, icon }) {
   const readyClickTimerRef = useRef(null);
 
   const toggleReady = () => {
-    const identityRaw = localStorage.getItem('tattletale-chat-identity');
+    const identityRaw = localStorage.getItem(STORAGE_KEY);
     if (!identityRaw) return;
     let parsed = null;
     try {
@@ -26,7 +27,7 @@ export default function DesktopIcon({ appId, name, icon }) {
     if (!lobbyCode || !username) return;
 
     const usernameKey = String(username).trim().toLowerCase();
-    const readyKey = `tattletale-ready:${lobbyCode}:${usernameKey}`;
+    const readyKey = `${READY_PREFIX}${lobbyCode}:${usernameKey}`;
     const current = localStorage.getItem(readyKey) === 'true';
     const next = !current;
 

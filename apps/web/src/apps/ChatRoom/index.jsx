@@ -1,32 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
-import { SOCKET_EVENTS, SOCKET_NAMESPACE } from '@tattletale/shared';
-import { lobbySocketRef } from '../../lib/lobbySocketRef';
+import { useEffect, useMemo, useState } from 'react';
+import { SOCKET_EVENTS } from '@tattletale/shared';
 import useAppMenu from '../../os/hooks/useAppMenu';
-import useMenuStore from '../../os/store/menuStore';
+import { getLobbySocket, tearDownLobbySocket } from '../../lib/lobbySocketManager';
+import { CHAT_SERVER_URL, STORAGE_KEY } from '../../lib/sessionConstants';
 import './chatRoom.css';
 
-// Default matches `apps/server` env default (`PORT` defaults to 3001).
-const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:3001';
-const DEFAULT_SESSION_ID = 'tattletale-room-1';
-const STORAGE_KEY = 'tattletale-chat-identity';
-const READY_PREFIX = 'tattletale-ready:';
+/** @param {import('socket.io-client').Socket} sock */
+function runChatSocketCleanup(sock) {
+  const unload = sock.__ttChatUnload;
+  if (typeof unload === 'function') {
+    unload();
+    sock.__ttChatUnload = undefined;
+  }
+}
 
 function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function ChatRoomComponent({ windowId }) {
-  const openContextMenu = useMenuStore((state) => state.openContextMenu);
+  const [socketRev, setSocketRev] = useState(0);
   const [username, setUsername] = useState('');
-  const [sessionId, setSessionId] = useState(DEFAULT_SESSION_ID);
+  const [sessionId, setSessionId] = useState('');
   const [joined, setJoined] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [phase, setPhase] = useState('DAY_OPEN');
-  const [lobbyPlayers, setLobbyPlayers] = useState([]);
-  const [mePlayerId, setMePlayerId] = useState(null);
-  const [meReady, setMeReady] = useState(false);
   const [sessionSelf, setSessionSelf] = useState(null);
   const [channels, setChannels] = useState([]);
   const [activeChannelId, setActiveChannelId] = useState('global');
@@ -36,31 +34,12 @@ function ChatRoomComponent({ windowId }) {
   const [draft, setDraft] = useState('');
   const [dmTarget, setDmTarget] = useState('');
   const [error, setError] = useState('');
-  const socketRef = useRef(null);
-  const identityRef = useRef({ reconnectToken: null, playerId: null, username: '' });
-  const lastLobbyCodeRef = useRef(null);
-  const usernameLowerRef = useRef('');
-
-  const readyStorageKeyFor = (lobbyCode, usernameValue) => {
-    const lobby = String(lobbyCode || '').trim();
-    const user = String(usernameValue || '').trim().toLowerCase();
-    if (!lobby || !user) return null;
-    return `${READY_PREFIX}${lobby}:${user}`;
-  };
 
   const pushEvent = (event) => {
     setEvents((prev) => [event, ...prev].slice(0, 120));
   };
 
-  const storeIdentity = (nextIdentity) => {
-    identityRef.current = nextIdentity;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      ...nextIdentity,
-      sessionId,
-    }));
-  };
-
-  const resetStateForNewJoin = () => {
+  const resetChatState = () => {
     setChannels([]);
     setUsers([]);
     setMessagesByChannel({});
@@ -68,6 +47,11 @@ function ChatRoomComponent({ windowId }) {
     setActiveChannelId('global');
     setDraft('');
     setError('');
+    setJoined(false);
+    setConnected(false);
+    setSessionId('');
+    setPhase('DAY_OPEN');
+    setSessionSelf(null);
   };
 
   useEffect(() => {
@@ -77,290 +61,119 @@ function ChatRoomComponent({ windowId }) {
       const parsed = JSON.parse(raw);
       if (parsed?.username) setUsername(parsed.username);
       if (parsed?.sessionId) setSessionId(parsed.sessionId);
-      identityRef.current = {
-        reconnectToken: parsed.reconnectToken || null,
-        playerId: parsed.playerId || null,
-        username: parsed.username || '',
-      };
     } catch (parseError) {
       console.warn('Invalid chat identity cache', parseError);
     }
-  }, []);
+  }, [socketRev]);
 
   useEffect(() => {
-    usernameLowerRef.current = username.trim().toLowerCase();
-  }, [username]);
-
-  useEffect(() => {
-    const onReadyChanged = (e) => {
-      const detail = e?.detail;
-      if (!detail) return;
-      const { lobbyCode, usernameKey, value } = detail;
-      if (!lobbyCode || !usernameKey) return;
-
-      if (lastLobbyCodeRef.current !== lobbyCode) return;
-      if (usernameLowerRef.current !== usernameKey) return;
-
-      setMeReady(Boolean(value));
-
-      const s = lobbySocketRef.current;
-      const id = identityRef.current;
-      if (
-        s?.connected &&
-        id.playerId &&
-        id.reconnectToken &&
-        lastLobbyCodeRef.current === lobbyCode
-      ) {
-        s.emit(SOCKET_EVENTS.client.setLobbyReady, {
-          lobbyCode,
-          playerId: id.playerId,
-          reconnectToken: id.reconnectToken,
-          ready: Boolean(value),
-        });
-      }
-    };
-
-    window.addEventListener('tattletale:ready-changed', onReadyChanged);
-    return () => window.removeEventListener('tattletale:ready-changed', onReadyChanged);
-  }, []);
-
-  useEffect(() => {
+    const bump = () => setSocketRev((n) => n + 1);
+    window.addEventListener('tattletale:lobby-socket-connected', bump);
+    window.addEventListener('tattletale:lobby-socket-disconnected', bump);
     return () => {
-      lobbySocketRef.current = null;
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
+      window.removeEventListener('tattletale:lobby-socket-connected', bump);
+      window.removeEventListener('tattletale:lobby-socket-disconnected', bump);
     };
   }, []);
 
-  const connectAndJoin = () => {
-    if (!username.trim() || !sessionId.trim()) {
-      setError('Username and session are required.');
-      return;
-    }
-    if (connecting) return;
+  useEffect(() => {
+    const socket = getLobbySocket();
 
-    if (!socketRef.current) {
-      // Server registers the realtime handlers under `SOCKET_NAMESPACE` (default: `/session`).
-      socketRef.current = io(`${CHAT_SERVER_URL}${SOCKET_NAMESPACE}`, {
-        // Let Socket.IO negotiate the best transport (websocket-first can fail
-        // if the server/client don't fully agree on protocol details).
-        autoConnect: false,
-        reconnection: true,
-      });
+    if (!socket) {
+      setJoined(false);
+      setConnected(false);
+      return undefined;
     }
 
-    const socket = socketRef.current;
-    setConnecting(true);
-    setError(`Connecting to ${CHAT_SERVER_URL}...`);
+    runChatSocketCleanup(socket);
 
-    socket.off('connect');
-    socket.off('disconnect');
-    socket.off('session.snapshot');
-    socket.off('chat.message');
-    socket.off('system.event');
-    socket.off('channel.available');
-    socket.off('channel.switched');
-    socket.off('user.presence');
-    socket.off('intent.rejected');
-    socket.off('session.error');
-    socket.off('connect_error');
-    socket.off(SOCKET_EVENTS.server.sessionState);
-
-    const applyLobbyCommandSuccess = (data) => {
-      if (!data?.lobby || !data.playerId || !data.reconnectToken) return;
-      const { lobby, playerId, reconnectToken } = data;
-      identityRef.current = {
-        ...identityRef.current,
-        reconnectToken,
-        playerId,
-        username: username.trim(),
-      };
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          ...identityRef.current,
-          sessionId: lobby.code,
-          hostPlayerId: lobby.hostPlayerId,
-        }),
-      );
-      const wantReady =
-        localStorage.getItem(readyStorageKeyFor(lobby.code, username.trim())) === 'true';
-      const mePl = lobby.players.find((p) => p.playerId === playerId);
-      if (mePl && mePl.ready !== wantReady && socket.connected) {
-        socket.emit(SOCKET_EVENTS.client.setLobbyReady, {
-          lobbyCode: lobby.code,
-          playerId,
-          reconnectToken,
-          ready: wantReady,
-        });
-      }
+    const onConnect = () => {
+      setConnected(true);
     };
 
-    socket.on('connect', () => {
-      setConnected(true);
-      setConnecting(false);
-      setError('');
-      lobbySocketRef.current = socket;
-
-      socket.emit(
-        SOCKET_EVENTS.client.joinLobby,
-        {
-          lobbyCode: sessionId.trim(),
-          displayName: username.trim(),
-        },
-        (ack) => {
-          if (ack?.ok && ack.data) {
-            applyLobbyCommandSuccess(ack.data);
-          }
-        },
-      );
-    });
-
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       setConnected(false);
-      setConnecting(false);
       pushEvent({
         id: `disconnect-${Date.now()}`,
         type: 'CONNECTION_LOST',
         summary: 'Connection lost. Attempting reconnect...',
         timestamp: Date.now(),
       });
-    });
+    };
 
-    // When using the foundation namespace events, the server emits lobby/session state.
-    // This app UI will at least stop "Connecting..." once we get a lobby state.
-    socket.on(SOCKET_EVENTS.server.lobbyState, (lobbyView) => {
+    const onLobbyState = (lobbyView) => {
       setJoined(true);
-      setConnecting(false);
+      setError('');
       const lobbyStatus = lobbyView?.status;
       if (lobbyStatus && lobbyStatus !== 'IN_GAME') {
         setPhase(lobbyStatus);
       }
-      setError('');
+      const lobbyCode = lobbyView?.code || '';
+      if (lobbyCode) setSessionId(lobbyCode);
 
-      const players = lobbyView?.players || [];
-      setLobbyPlayers(players);
+      const parsed = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        } catch {
+          return {};
+        }
+      })();
+      if (parsed?.username) setUsername(parsed.username);
 
-      const lobbyCode = lobbyView?.code || sessionId.trim();
-      lastLobbyCodeRef.current = lobbyCode;
-
-      const normalizedUsername = username.trim().toLowerCase();
-      const identityPlayerId = identityRef.current.playerId;
-
-      const meById = identityPlayerId
-        ? players.find((p) => p.playerId === identityPlayerId)
-        : null;
-      const meByName = players.find(
-        (p) => p.displayName?.toLowerCase() === normalizedUsername,
-      );
-      const me = meById || meByName;
-
-      const nextMePlayerId = me?.playerId || null;
-      setMePlayerId(nextMePlayerId);
-
-      // Persist minimal identity so the desktop "Ready Toggle" can find our lobby + username.
-      identityRef.current = {
-        ...identityRef.current,
-        username: username.trim(),
-        playerId: nextMePlayerId,
-      };
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          ...identityRef.current,
-          sessionId: lobbyCode,
-          hostPlayerId: lobbyView.hostPlayerId,
-        }),
-      );
-
-      // Local readiness display; server copy is synced via setLobbyReady.
-      const readyKey = readyStorageKeyFor(lobbyCode, username.trim());
-      const wantReady = readyKey ? localStorage.getItem(readyKey) === 'true' : false;
-      setMeReady(wantReady);
-
-      if (
-        me &&
-        socket.connected &&
-        identityRef.current.reconnectToken &&
-        me.ready !== wantReady
-      ) {
-        socket.emit(SOCKET_EVENTS.client.setLobbyReady, {
-          lobbyCode,
-          playerId: me.playerId,
-          reconnectToken: identityRef.current.reconnectToken,
-          ready: wantReady,
-        });
-      }
-
-      // The foundation skeleton doesn't provide chat messages yet; keep UI stable.
       setChannels([]);
       setUsers([]);
       setMessagesByChannel({});
       setEvents([]);
       setActiveChannelId('global');
-    });
+    };
 
-    socket.on(SOCKET_EVENTS.server.sessionState, (sessionView) => {
+    const onSessionState = (sessionView) => {
       if (sessionView?.phase) {
         setPhase(sessionView.phase);
       }
       setSessionSelf(sessionView?.self ?? null);
-    });
+    };
 
-    socket.on(SOCKET_EVENTS.server.commandError, (commandError) => {
-      setConnecting(false);
-      const code = commandError?.code;
-      // If the requested lobby doesn't exist yet, fall back to creating it.
-      if (code === 'LOBBY_NOT_FOUND') {
-        socket.emit(
-          SOCKET_EVENTS.client.createLobby,
-          {
-            displayName: username.trim(),
-            settings: undefined,
-          },
-          (ack) => {
-            if (ack?.ok && ack.data) {
-              applyLobbyCommandSuccess(ack.data);
-            }
-          },
-        );
-        return;
-      }
-      setError(commandError?.message || 'Command failed. Check lobby/session inputs.');
-    });
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on(SOCKET_EVENTS.server.lobbyState, onLobbyState);
+    socket.on(SOCKET_EVENTS.server.sessionState, onSessionState);
 
-    socket.on('connect_error', (connectError) => {
-      setConnecting(false);
-      setConnected(false);
-      const baseMessage =
-        connectError?.message || 'Socket.IO connection failed.';
-      setError(
-        `${baseMessage} Could not connect to ${CHAT_SERVER_URL}. ` +
-          `Is the chat server running on that port? ` +
-          `If not, set VITE_CHAT_SERVER_URL.`
-      );
-    });
+    socket.__ttChatUnload = () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off(SOCKET_EVENTS.server.lobbyState, onLobbyState);
+      socket.off(SOCKET_EVENTS.server.sessionState, onSessionState);
+    };
 
-    // Register handlers before triggering the connection. Otherwise, a fast
-    // successful handshake can happen before listeners are attached, leaving
-    // the UI stuck on "Connecting...".
-    if (!socket.connected) {
-      socket.connect();
+    if (socket.connected) {
+      setConnected(true);
     }
-  };
+
+    return () => {
+      runChatSocketCleanup(socket);
+    };
+  }, [socketRev]);
 
   const sendIntent = (type, payload) => {
-    if (!socketRef.current || !connected) {
-      setError('Not connected to server.');
+    const sock = getLobbySocket();
+    if (!sock?.connected) {
+      setError('Not connected to server. Open Lobby and join a session.');
       return;
     }
-    socketRef.current.emit('intent', {
+    sock.emit('intent', {
       type,
       timestamp: Date.now(),
       payload: {
         sessionId: sessionId.trim(),
-        playerId: identityRef.current.playerId,
+        playerId: (() => {
+          try {
+            const p = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            return p?.playerId ?? null;
+          } catch {
+            return null;
+          }
+        })(),
         ...payload,
       },
     });
@@ -384,73 +197,54 @@ function ChatRoomComponent({ windowId }) {
     setDmTarget('');
   };
 
-  const onUserContextMenu = (event, user) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const isSelf = user.name?.toLowerCase() === username.trim().toLowerCase();
-    openContextMenu(event.clientX, event.clientY, [
-      {
-        id: 'chat-with-user',
-        label: isSelf ? 'This is you' : `Chat with ${user.name}`,
-        disabled: isSelf,
-        action: () => {
-          sendIntent('SWITCH_CHANNEL', { targetUsername: user.name });
-        },
-      },
-    ]);
-  };
-
-  const onLeave = () => {
-    lobbySocketRef.current = null;
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-    }
-    setConnected(false);
-    setJoined(false);
-    identityRef.current = { reconnectToken: null, playerId: null, username: '' };
+  const onLeaveSession = () => {
+    const s = getLobbySocket();
+    if (s) runChatSocketCleanup(s);
+    tearDownLobbySocket();
     localStorage.removeItem(STORAGE_KEY);
-    resetStateForNewJoin();
+    resetChatState();
+    setUsername('');
   };
 
   useAppMenu(windowId, {
-    'session.connect': connectAndJoin,
-    'session.disconnect': onLeave,
+    'session.disconnect': onLeaveSession,
     'chat.clear': () => setMessagesByChannel({}),
   });
 
   const visibleMessages = useMemo(
     () => messagesByChannel[activeChannelId] || [],
-    [messagesByChannel, activeChannelId]
+    [messagesByChannel, activeChannelId],
   );
+
+  const socket = getLobbySocket();
+  if (!socket?.connected) {
+    return (
+      <div className="chatroom-root">
+        <div className="chatroom-join">
+          <h3>Network Chat</h3>
+          <p>
+            Join a lobby from the <strong>Lobby</strong> app first. When you are connected, open Chat Room
+            to send messages here.
+          </p>
+          <p className="chatroom-hint" style={{ color: '#555', fontSize: 11 }}>
+            Server: {CHAT_SERVER_URL}
+          </p>
+          {socket && !socket.connected ? (
+            <p className="chatroom-hint" style={{ color: '#a40000', fontSize: 11 }}>
+              Connecting to server… If this stays stuck, check the Lobby app.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   if (!joined) {
     return (
       <div className="chatroom-root">
         <div className="chatroom-join">
           <h3>Network Chat</h3>
-          <p>Server-authoritative chat with intent-based actions.</p>
-          <input
-            className="chatroom-input"
-            placeholder="Username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-          <input
-            className="chatroom-input"
-            placeholder="Session ID"
-            value={sessionId}
-            onChange={(event) => setSessionId(event.target.value)}
-          />
-          <button
-            type="button"
-            className="chatroom-button"
-            onClick={connectAndJoin}
-            disabled={connecting}
-          >
-            {connecting ? 'Connecting...' : 'Join Session'}
-          </button>
-          {error && <div className="chatroom-error">{error}</div>}
+          <p>Connected. Waiting for lobby state… Open the Lobby app if you have not finished joining.</p>
         </div>
       </div>
     );
@@ -459,15 +253,12 @@ function ChatRoomComponent({ windowId }) {
   return (
     <div className="chatroom-root">
       <div className="chatroom-topbar">
-        <strong>{sessionId}</strong>
+        <strong>{sessionId || '—'}</strong>
+        {username ? <span className="chatroom-status">As {username}</span> : null}
         <span>Phase: {phase}</span>
-        {phase === 'WAITING' && (
-          <span className="chatroom-status">{meReady ? 'Ready: YES' : 'Ready: NO'}</span>
-        )}
         {sessionSelf && phase === 'NIGHT_ACTIONS' && (
           <span className="chatroom-status">
-            {sessionSelf.sleeping ? 'Sleep mode' : 'Awake (night)'} · Team:{' '}
-            {sessionSelf.team ?? '—'}
+            {sessionSelf.sleeping ? 'Sleep mode' : 'Awake (night)'} · Team: {sessionSelf.team ?? '—'}
           </span>
         )}
         <input
@@ -479,8 +270,8 @@ function ChatRoomComponent({ windowId }) {
         <button type="button" className="chatroom-button" onClick={onCreateDm}>
           Open DM
         </button>
-        <button type="button" className="chatroom-button" onClick={onLeave}>
-          Leave
+        <button type="button" className="chatroom-button" onClick={onLeaveSession}>
+          Leave session
         </button>
         <span className="chatroom-status">{connected ? 'Connected' : 'Reconnecting...'}</span>
       </div>
@@ -539,33 +330,16 @@ function ChatRoomComponent({ windowId }) {
         </section>
 
         <aside className="chatroom-panel">
-          <div className="chatroom-heading">{phase === 'WAITING' ? 'Lobby Players' : 'Users'}</div>
-          {phase === 'WAITING'
-            ? lobbyPlayers.map((player) => {
-                const displayReady = player.playerId === mePlayerId ? meReady : false;
-                const isOffline = !player.connected;
-                return (
-                  <div
-                    key={player.playerId}
-                    className={`chatroom-user-item ${isOffline ? 'offline' : ''}`}
-                    title={player.displayName}
-                  >
-                    {player.displayName}
-                    {player.playerId === mePlayerId ? ' (You)' : ''}
-                    {displayReady ? ' (Ready)' : ''}
-                  </div>
-                );
-              })
-            : users.map((user) => (
-                <div
-                  key={user.id}
-                  className={`chatroom-user-item ${user.online ? '' : 'offline'}`}
-                  onContextMenu={(event) => onUserContextMenu(event, user)}
-                  title={`Right-click to chat with ${user.name}`}
-                >
-                  {user.name} {user.online ? '' : '(offline)'}
-                </div>
-              ))}
+          <div className="chatroom-heading">Users</div>
+          {users.map((user) => (
+            <div
+              key={user.id}
+              className={`chatroom-user-item ${user.online ? '' : 'offline'}`}
+              title={user.name}
+            >
+              {user.name} {user.online ? '' : '(offline)'}
+            </div>
+          ))}
         </aside>
       </div>
       {error && <div className="chatroom-error" style={{ padding: '6px 8px' }}>{error}</div>}
@@ -573,7 +347,9 @@ function ChatRoomComponent({ windowId }) {
   );
 }
 
-const chatIcon = 'data:image/svg+xml,' + encodeURIComponent(`
+const chatIcon =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <rect x="2" y="4" width="28" height="20" rx="2" fill="#e7f0ff" stroke="#4d78c2" stroke-width="1"/>
     <path d="M8 24 L8 30 L14 24 Z" fill="#e7f0ff" stroke="#4d78c2" stroke-width="1"/>
@@ -600,17 +376,12 @@ const ChatRoom = {
       {
         id: 'session',
         label: 'Session',
-        items: [
-          { id: 'connect', label: 'Connect / Join', action: 'session.connect' },
-          { id: 'disconnect', label: 'Disconnect', action: 'session.disconnect' },
-        ],
+        items: [{ id: 'disconnect', label: 'Leave session', action: 'session.disconnect' }],
       },
       {
         id: 'chat',
         label: 'Chat',
-        items: [
-          { id: 'clear', label: 'Clear Current Messages', action: 'chat.clear' },
-        ],
+        items: [{ id: 'clear', label: 'Clear Current Messages', action: 'chat.clear' }],
       },
     ],
   },

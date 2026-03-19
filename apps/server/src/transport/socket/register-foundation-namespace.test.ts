@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import {
+  LobbyStatus,
   Phase,
   SOCKET_EVENTS,
   SOCKET_NAMESPACE,
@@ -428,7 +429,7 @@ describe('registerFoundationNamespace', () => {
     expect(lobbyView.players[0].isHost).toBe(true);
   });
 
-  it('starts game, persists audit record, and rejects joining in-progress lobby', async () => {
+  it('auto-starts when all players are ready, persists audit record, and rejects joining in-progress lobby', async () => {
     const { socket: host } = await connectClient();
     const created = await createLobby(host, 'HostPlayer');
 
@@ -456,17 +457,9 @@ describe('registerFoundationNamespace', () => {
 
     await markLobbyPlayersReady(created.lobby.code, readyEntries);
 
-    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
-      lobbyCode: created.lobby.code,
-      actorPlayerId: created.playerId,
-      reconnectToken: created.reconnectToken,
-    });
-
-    expect(startAck.ok).toBe(true);
-    if (startAck.ok) {
-      expect(startAck.data.session.gameId).toBeTruthy();
-      expect(startAck.data.lobby.sessionId).toBe(startAck.data.session.gameId);
-    }
+    const lobbyAfterStart = await runtimeRepository.getLobby(created.lobby.code);
+    expect(lobbyAfterStart?.status).toBe(LobbyStatus.IN_GAME);
+    expect(lobbyAfterStart?.sessionId).toBeTruthy();
 
     expect(auditRepository.gameRecords).toHaveLength(1);
     expect(auditRepository.sessionEvents).toHaveLength(1);
@@ -506,13 +499,6 @@ describe('registerFoundationNamespace', () => {
         reconnectToken: p.player.reconnectToken,
       })),
     ]);
-
-    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
-      lobbyCode: created.lobby.code,
-      actorPlayerId: created.playerId,
-      reconnectToken: created.reconnectToken,
-    });
-    expect(startAck.ok).toBe(true);
 
     const target = participants[0];
     const leaveAck = await emitAck(target.socket, SOCKET_EVENTS.client.leaveLobby, {
@@ -577,13 +563,6 @@ describe('registerFoundationNamespace', () => {
       })),
     ]);
 
-    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
-      lobbyCode: created.lobby.code,
-      actorPlayerId: created.playerId,
-      reconnectToken: created.reconnectToken,
-    });
-    expect(startAck.ok).toBe(true);
-
     const target = participants[1];
     const kickAck = await emitAck(host, SOCKET_EVENTS.client.kickPlayer, {
       lobbyCode: created.lobby.code,
@@ -636,7 +615,7 @@ describe('registerFoundationNamespace', () => {
     });
   });
 
-  it('emits session state on start game', async () => {
+  it('emits session state when the last player shuts off (all ready)', async () => {
     const { socket: host } = await connectClient();
     const created = await createLobby(host, 'HostPlayer');
 
@@ -662,16 +641,9 @@ describe('registerFoundationNamespace', () => {
       });
     }
 
-    await markLobbyPlayersReady(created.lobby.code, readyEntries);
-
     const sessionStatePromise = onceEvent<SessionView>(host, SOCKET_EVENTS.server.sessionState);
 
-    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
-      lobbyCode: created.lobby.code,
-      actorPlayerId: created.playerId,
-      reconnectToken: created.reconnectToken,
-    });
-    expect(startAck.ok).toBe(true);
+    await markLobbyPlayersReady(created.lobby.code, readyEntries);
 
     const sessionState = await sessionStatePromise;
     expect(sessionState.lobbyCode).toBe(created.lobby.code);
