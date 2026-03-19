@@ -66,7 +66,6 @@ const ATTENTION_TASKS = [
     correctIndex: 2,
   },
 ];
-
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
   const windowList = Object.values(windows);
@@ -126,11 +125,11 @@ export default function OS({ wallpaper = defaultWallpaper }) {
   const handleSideTaskSubmit = (payload) => {
     if (!sideTask) return 'FAIL';
 
-    // Typing mini-game
     if (sideTask.type === 'TYPING_SENTENCE') {
       const target = sideTask.sentence.trim();
       const answer = (payload || '').trim();
 
+      // Case-sensitive comparison to make it feel precise
       const success = target === answer;
 
       setSideTask((prev) =>
@@ -145,14 +144,8 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       return success ? 'SUCCESS' : 'FAIL';
     }
 
-    // Attention-check mini-game
     if (sideTask.type === 'ATTENTION_CHECK') {
-      const index =
-        typeof payload === 'number'
-          ? payload
-          : payload && typeof payload.index === 'number'
-          ? payload.index
-          : -1;
+      const index = typeof payload === 'number' ? payload : -1;
 
       const success = index === sideTask.correctIndex;
 
@@ -175,7 +168,15 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     setSideTask(null);
   };
 
-  const activeSideTask = useMemo(() => sideTask, [sideTask]);
+  const activeSideTask = useMemo(
+    () =>
+      sideTask &&
+      (sideTask.type === 'TYPING_SENTENCE' ||
+        sideTask.type === 'ATTENTION_CHECK')
+        ? sideTask
+        : null,
+    [sideTask]
+  );
 
   return (
     <div className="xp-os">
