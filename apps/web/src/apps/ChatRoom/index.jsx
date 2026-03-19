@@ -9,6 +9,7 @@ import './chatRoom.css';
 const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:3001';
 const DEFAULT_SESSION_ID = 'tattletale-room-1';
 const STORAGE_KEY = 'tattletale-chat-identity';
+const DEFAULT_CHANNELS = [{ id: 'global', label: 'global' }];
 
 function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -21,8 +22,8 @@ function ChatRoomComponent({ windowId }) {
   const [joined, setJoined] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [phase, setPhase] = useState('DAY_OPEN');
-  const [channels, setChannels] = useState([]);
+  const [phase, setPhase] = useState('LOBBY');
+  const [channels, setChannels] = useState(DEFAULT_CHANNELS);
   const [activeChannelId, setActiveChannelId] = useState('global');
   const [users, setUsers] = useState([]);
   const [messagesByChannel, setMessagesByChannel] = useState({});
@@ -37,6 +38,24 @@ function ChatRoomComponent({ windowId }) {
     setEvents((prev) => [event, ...prev].slice(0, 120));
   };
 
+  const appendMessage = (message) => {
+    if (!message?.channelId) return;
+    setMessagesByChannel((prev) => {
+      const list = prev[message.channelId] || [];
+      return {
+        ...prev,
+        [message.channelId]: [...list, message].slice(-200),
+      };
+    });
+  };
+
+  const toUiUsers = (incomingUsers = []) =>
+    incomingUsers.map((user, index) => ({
+      id: user.playerId || user.id || `user-${index}`,
+      name: user.displayName || user.name || 'Unknown',
+      online: user.connected ?? user.online ?? false,
+    }));
+
   const storeIdentity = (nextIdentity) => {
     identityRef.current = nextIdentity;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -46,7 +65,7 @@ function ChatRoomComponent({ windowId }) {
   };
 
   const resetStateForNewJoin = () => {
-    setChannels([]);
+    setChannels(DEFAULT_CHANNELS);
     setUsers([]);
     setMessagesByChannel({});
     setEvents([]);
@@ -142,12 +161,12 @@ function ChatRoomComponent({ windowId }) {
     socket.on(SOCKET_EVENTS.server.lobbyState, (lobbyView) => {
       setJoined(true);
       setConnecting(false);
-      setPhase(lobbyView?.status || 'LOBBY');
+      const nextPhase = lobbyView?.status;
+      setPhase(nextPhase === 'WAITING' ? 'LOBBY' : (nextPhase || 'LOBBY'));
       setError('');
 
-      // The foundation skeleton doesn't provide chat messages yet; keep UI stable.
-      setChannels([]);
-      setUsers([]);
+      setChannels(DEFAULT_CHANNELS);
+      setUsers(toUiUsers(lobbyView?.players || []));
       setMessagesByChannel({});
       setEvents([]);
       setActiveChannelId('global');
@@ -165,6 +184,15 @@ function ChatRoomComponent({ windowId }) {
         return;
       }
       setError(commandError?.message || 'Command failed. Check lobby/session inputs.');
+    });
+
+    // Legacy chat server compatibility: when available, consume live message events.
+    socket.on('chat.message', (message) => {
+      appendMessage(message);
+    });
+
+    socket.on('user.presence', (presencePayload) => {
+      setUsers(toUiUsers(presencePayload?.users || []));
     });
 
     socket.on('connect_error', (connectError) => {
@@ -206,6 +234,13 @@ function ChatRoomComponent({ windowId }) {
   const onSendMessage = () => {
     const text = draft.trim();
     if (!text) return;
+    appendMessage({
+      id: `local-${Date.now()}`,
+      channelId: activeChannelId,
+      senderName: username.trim() || 'You',
+      text,
+      timestamp: Date.now(),
+    });
     sendIntent('SEND_MESSAGE', { channelId: activeChannelId, text });
     setDraft('');
   };
