@@ -9,6 +9,7 @@ import './chatRoom.css';
 const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:3001';
 const DEFAULT_SESSION_ID = 'tattletale-room-1';
 const STORAGE_KEY = 'tattletale-chat-identity';
+const READY_PREFIX = 'tattletale-ready:';
 
 function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -22,6 +23,9 @@ function ChatRoomComponent({ windowId }) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [phase, setPhase] = useState('DAY_OPEN');
+  const [lobbyPlayers, setLobbyPlayers] = useState([]);
+  const [mePlayerId, setMePlayerId] = useState(null);
+  const [meReady, setMeReady] = useState(false);
   const [channels, setChannels] = useState([]);
   const [activeChannelId, setActiveChannelId] = useState('global');
   const [users, setUsers] = useState([]);
@@ -32,6 +36,15 @@ function ChatRoomComponent({ windowId }) {
   const [error, setError] = useState('');
   const socketRef = useRef(null);
   const identityRef = useRef({ reconnectToken: null, playerId: null, username: '' });
+  const lastLobbyCodeRef = useRef(null);
+  const usernameLowerRef = useRef('');
+
+  const readyStorageKeyFor = (lobbyCode, usernameValue) => {
+    const lobby = String(lobbyCode || '').trim();
+    const user = String(usernameValue || '').trim().toLowerCase();
+    if (!lobby || !user) return null;
+    return `${READY_PREFIX}${lobby}:${user}`;
+  };
 
   const pushEvent = (event) => {
     setEvents((prev) => [event, ...prev].slice(0, 120));
@@ -70,6 +83,27 @@ function ChatRoomComponent({ windowId }) {
     } catch (parseError) {
       console.warn('Invalid chat identity cache', parseError);
     }
+  }, []);
+
+  useEffect(() => {
+    usernameLowerRef.current = username.trim().toLowerCase();
+  }, [username]);
+
+  useEffect(() => {
+    const onReadyChanged = (e) => {
+      const detail = e?.detail;
+      if (!detail) return;
+      const { lobbyCode, usernameKey, value } = detail;
+      if (!lobbyCode || !usernameKey) return;
+
+      if (lastLobbyCodeRef.current !== lobbyCode) return;
+      if (usernameLowerRef.current !== usernameKey) return;
+
+      setMeReady(Boolean(value));
+    };
+
+    window.addEventListener('tattletale:ready-changed', onReadyChanged);
+    return () => window.removeEventListener('tattletale:ready-changed', onReadyChanged);
   }, []);
 
   useEffect(() => {
@@ -144,6 +178,44 @@ function ChatRoomComponent({ windowId }) {
       setConnecting(false);
       setPhase(lobbyView?.status || 'LOBBY');
       setError('');
+
+      const players = lobbyView?.players || [];
+      setLobbyPlayers(players);
+
+      const lobbyCode = lobbyView?.code || sessionId.trim();
+      lastLobbyCodeRef.current = lobbyCode;
+
+      const normalizedUsername = username.trim().toLowerCase();
+      const identityPlayerId = identityRef.current.playerId;
+
+      const meById = identityPlayerId
+        ? players.find((p) => p.playerId === identityPlayerId)
+        : null;
+      const meByName = players.find(
+        (p) => p.displayName?.toLowerCase() === normalizedUsername,
+      );
+      const me = meById || meByName;
+
+      const nextMePlayerId = me?.playerId || null;
+      setMePlayerId(nextMePlayerId);
+
+      // Persist minimal identity so the desktop "Ready Toggle" can find our lobby + username.
+      identityRef.current = {
+        ...identityRef.current,
+        username: username.trim(),
+        playerId: nextMePlayerId,
+      };
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          ...identityRef.current,
+          sessionId: lobbyCode,
+        }),
+      );
+
+      // Local-only readiness, keyed by lobbyCode + username.
+      const readyKey = readyStorageKeyFor(lobbyCode, username.trim());
+      setMeReady(readyKey ? localStorage.getItem(readyKey) === 'true' : false);
 
       // The foundation skeleton doesn't provide chat messages yet; keep UI stable.
       setChannels([]);
@@ -297,6 +369,9 @@ function ChatRoomComponent({ windowId }) {
       <div className="chatroom-topbar">
         <strong>{sessionId}</strong>
         <span>Phase: {phase}</span>
+        {phase === 'WAITING' && (
+          <span className="chatroom-status">{meReady ? 'Ready: YES' : 'Ready: NO'}</span>
+        )}
         <input
           className="chatroom-input"
           placeholder="Create/open DM with username"
@@ -366,17 +441,33 @@ function ChatRoomComponent({ windowId }) {
         </section>
 
         <aside className="chatroom-panel">
-          <div className="chatroom-heading">Users</div>
-          {users.map((user) => (
-            <div
-              key={user.id}
-              className={`chatroom-user-item ${user.online ? '' : 'offline'}`}
-              onContextMenu={(event) => onUserContextMenu(event, user)}
-              title={`Right-click to chat with ${user.name}`}
-            >
-              {user.name} {user.online ? '' : '(offline)'}
-            </div>
-          ))}
+          <div className="chatroom-heading">{phase === 'WAITING' ? 'Lobby Players' : 'Users'}</div>
+          {phase === 'WAITING'
+            ? lobbyPlayers.map((player) => {
+                const displayReady = player.playerId === mePlayerId ? meReady : false;
+                const isOffline = !player.connected;
+                return (
+                  <div
+                    key={player.playerId}
+                    className={`chatroom-user-item ${isOffline ? 'offline' : ''}`}
+                    title={player.displayName}
+                  >
+                    {player.displayName}
+                    {player.playerId === mePlayerId ? ' (You)' : ''}
+                    {displayReady ? ' (Ready)' : ''}
+                  </div>
+                );
+              })
+            : users.map((user) => (
+                <div
+                  key={user.id}
+                  className={`chatroom-user-item ${user.online ? '' : 'offline'}`}
+                  onContextMenu={(event) => onUserContextMenu(event, user)}
+                  title={`Right-click to chat with ${user.name}`}
+                >
+                  {user.name} {user.online ? '' : '(offline)'}
+                </div>
+              ))}
         </aside>
       </div>
       {error && <div className="chatroom-error" style={{ padding: '6px 8px' }}>{error}</div>}

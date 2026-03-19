@@ -6,6 +6,7 @@ import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import ChatRoom from '../../apps/ChatRoom';
 import AdminPanel from '../../apps/AdminPanel';
+import ReadyToggle from '../../apps/ReadyToggle';
 
 // Registry of all available apps
 const appRegistry = {
@@ -13,6 +14,7 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [ChatRoom.id]: ChatRoom,
+  [ReadyToggle.id]: ReadyToggle,
   [AdminPanel.id]: AdminPanel,
 };
 

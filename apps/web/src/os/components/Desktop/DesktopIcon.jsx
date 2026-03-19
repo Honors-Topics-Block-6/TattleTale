@@ -1,18 +1,78 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import useWindowStore from '../../store/windowStore';
 import { getAppConfig } from '../../config/apps.config';
 
 export default function DesktopIcon({ appId, name, icon }) {
   const [selected, setSelected] = useState(false);
   const createWindow = useWindowStore((state) => state.createWindow);
+  const focusWindow = useWindowStore((state) => state.focusWindow);
+  const getAllWindows = useWindowStore((state) => state.getAllWindows);
+  const readyClickTimerRef = useRef(null);
+
+  const toggleReady = () => {
+    const identityRaw = localStorage.getItem('tattletale-chat-identity');
+    if (!identityRaw) return;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(identityRaw);
+    } catch {
+      return;
+    }
+
+    const lobbyCode = parsed?.sessionId;
+    const username = parsed?.username;
+    if (!lobbyCode || !username) return;
+
+    const usernameKey = String(username).trim().toLowerCase();
+    const readyKey = `tattletale-ready:${lobbyCode}:${usernameKey}`;
+    const current = localStorage.getItem(readyKey) === 'true';
+    const next = !current;
+
+    localStorage.setItem(readyKey, next ? 'true' : 'false');
+
+    // Notify the currently open lobby UI (same tab) to sync display.
+    window.dispatchEvent(
+      new CustomEvent('tattletale:ready-changed', {
+        detail: { lobbyCode, usernameKey, value: next },
+      }),
+    );
+  };
 
   const handleClick = (e) => {
     e.stopPropagation();
+
+    if (appId === 'ready-toggle') {
+      // If the user double-clicks, we don't want to toggle twice
+      // (once per click). Delay the toggle briefly and cancel on double-click.
+      if (readyClickTimerRef.current) clearTimeout(readyClickTimerRef.current);
+      readyClickTimerRef.current = setTimeout(() => {
+        readyClickTimerRef.current = null;
+        toggleReady();
+      }, 450);
+      setSelected(true);
+      return;
+    }
+
     setSelected(true);
   };
 
   const handleDoubleClick = (e) => {
     e.stopPropagation();
+
+    if (appId === 'ready-toggle') {
+      if (readyClickTimerRef.current) {
+        clearTimeout(readyClickTimerRef.current);
+        readyClickTimerRef.current = null;
+      }
+
+      // Prevent opening multiple Ready Toggle windows.
+      const existing = getAllWindows().find((w) => w.appId === appId);
+      if (existing) {
+        focusWindow(existing.id);
+        return;
+      }
+    }
+
     const appConfig = getAppConfig(appId);
     if (appConfig) {
       createWindow(appId, appConfig);
