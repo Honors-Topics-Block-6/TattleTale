@@ -4,12 +4,14 @@
 import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
+import Pacman from '../../apps/Pacman';
 
 // Registry of all available apps
 const appRegistry = {
   [EmptyApp.id]: EmptyApp,
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
+  [Pacman.id]: Pacman,
 };
 
 // Default folder icon
