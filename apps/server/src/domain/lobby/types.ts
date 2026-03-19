@@ -25,6 +25,7 @@ export interface LobbyState {
   players: LobbyPlayerState[];
   settings: LobbySettings;
   sessionId: string | null;
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
 }

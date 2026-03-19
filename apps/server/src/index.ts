@@ -9,7 +9,14 @@ async function main(): Promise<void> {
   const prisma = createPrismaClient();
   const redis = createRedisClient(config.REDIS_URL);
 
-  await redis.connect();
+  try {
+    await redis.connect();
+  } catch (error) {
+    console.error('[startup] Failed to connect to Redis:', config.REDIS_URL);
+    console.error('[startup] Make sure Redis is running: brew services start redis');
+    process.exitCode = 1;
+    return;
+  }
 
   const { fastify } = await createApp({
     config,

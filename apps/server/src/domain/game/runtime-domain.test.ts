@@ -32,6 +32,7 @@ function buildLobby(playerCount: number): LobbyState {
     players,
     settings: { ...DEFAULT_LOBBY_SETTINGS },
     sessionId: 'game-1',
+    isPublic: false,
     createdAt,
     updatedAt: createdAt,
   };

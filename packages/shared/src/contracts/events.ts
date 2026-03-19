@@ -3,6 +3,7 @@ import type {
   JoinLobbyCommand,
   KickPlayerCommand,
   LeaveLobbyCommand,
+  ListPublicLobbiesCommand,
   ReconnectCommand,
   SubmitIntentCommand,
   StartGameCommand,
@@ -11,6 +12,7 @@ import type { CommandAck, CommandErrorPayload } from './errors.js';
 import type {
   LobbyCommandSuccess,
   LobbyView,
+  PublicLobbyItemView,
   SessionView,
   SocketReadyPayload,
   SubmitIntentSuccess,
@@ -28,6 +30,7 @@ export const SOCKET_EVENTS = {
     kickPlayer: 'lobby:kick-player',
     startGame: 'game:start',
     submitIntent: 'game:submit-intent',
+    listPublicLobbies: 'lobby:list-public',
   },
   server: {
     ready: 'system:ready',
@@ -49,6 +52,7 @@ export interface ClientCommandPayloads {
   [SOCKET_EVENTS.client.kickPlayer]: KickPlayerCommand;
   [SOCKET_EVENTS.client.startGame]: StartGameCommand;
   [SOCKET_EVENTS.client.submitIntent]: SubmitIntentCommand;
+  [SOCKET_EVENTS.client.listPublicLobbies]: ListPublicLobbiesCommand;
 }
 
 export interface ClientCommandAcks {
@@ -59,6 +63,7 @@ export interface ClientCommandAcks {
   [SOCKET_EVENTS.client.kickPlayer]: CommandAck<{ lobby: LobbyView }>;
   [SOCKET_EVENTS.client.startGame]: CommandAck<StartGameSuccess>;
   [SOCKET_EVENTS.client.submitIntent]: CommandAck<SubmitIntentSuccess>;
+  [SOCKET_EVENTS.client.listPublicLobbies]: CommandAck<{ lobbies: PublicLobbyItemView[] }>;
 }
 
 export interface ServerPushPayloads {

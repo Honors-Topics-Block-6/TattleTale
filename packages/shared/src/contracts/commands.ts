@@ -3,7 +3,12 @@ import type { IntentType } from '../enums.js';
 
 export interface CreateLobbyCommand {
   displayName: string;
+  isPublic?: boolean;
   settings?: Partial<LobbySettingsView>;
+}
+
+export interface ListPublicLobbiesCommand {
+  _?: never;
 }
 
 export interface JoinLobbyCommand {

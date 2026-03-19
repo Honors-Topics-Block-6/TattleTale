@@ -1,3 +1,4 @@
+import { LobbyStatus } from '@tattletale/shared';
 import type { Redis } from 'ioredis';
 
 import type { GameState } from '../../domain/game/types.js';
@@ -12,6 +13,7 @@ const sessionKey = (gameId: string) => `session:${gameId}`;
 const socketPresenceKey = (socketId: string) => `presence:socket:${socketId}`;
 const playerPresenceKey = (lobbyCode: string, playerId: string) =>
   `presence:player:${lobbyCode}:${playerId}`;
+const PUBLIC_LOBBY_INDEX_KEY = 'public:lobby:index';
 
 export class RedisRuntimeRepository implements RuntimeRepository {
   constructor(private readonly redis: Redis) {}
@@ -81,5 +83,41 @@ export class RedisRuntimeRepository implements RuntimeRepository {
     await this.redis.del(playerPresenceKey(lobbyCode, playerId));
     await this.redis.del(socketPresenceKey(binding.socketId));
     return binding;
+  }
+
+  async addPublicLobby(code: string): Promise<void> {
+    await this.redis.sadd(PUBLIC_LOBBY_INDEX_KEY, code);
+  }
+
+  async removePublicLobby(code: string): Promise<void> {
+    await this.redis.srem(PUBLIC_LOBBY_INDEX_KEY, code);
+  }
+
+  async listPublicLobbies(): Promise<LobbyState[]> {
+    const codes = await this.redis.smembers(PUBLIC_LOBBY_INDEX_KEY);
+
+    if (codes.length === 0) {
+      return [];
+    }
+
+    const results: LobbyState[] = [];
+    const staleCodes: string[] = [];
+
+    for (const code of codes) {
+      const lobby = await this.getLobby(code);
+
+      if (!lobby || lobby.status !== LobbyStatus.WAITING) {
+        staleCodes.push(code);
+        continue;
+      }
+
+      results.push(lobby);
+    }
+
+    if (staleCodes.length > 0) {
+      await this.redis.srem(PUBLIC_LOBBY_INDEX_KEY, ...staleCodes);
+    }
+
+    return results;
   }
 }

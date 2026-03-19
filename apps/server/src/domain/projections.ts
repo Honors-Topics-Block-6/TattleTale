@@ -18,6 +18,7 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
     })),
     settings: { ...lobby.settings },
     sessionId: lobby.sessionId,
+    isPublic: lobby.isPublic,
   };
 }
 

@@ -30,6 +30,14 @@ export interface LobbyView {
   players: LobbyPlayerView[];
   settings: LobbySettingsView;
   sessionId: string | null;
+  isPublic: boolean;
+}
+
+export interface PublicLobbyItemView {
+  code: string;
+  hostDisplayName: string;
+  playerCount: number;
+  maxPlayers: number;
 }
 
 export interface SessionPlayerView {

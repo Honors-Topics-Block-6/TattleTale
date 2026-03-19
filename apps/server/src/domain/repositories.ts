@@ -20,6 +20,9 @@ export interface RuntimeRepository {
     lobbyCode: string,
     playerId: string,
   ): Promise<PresenceBinding | null>;
+  addPublicLobby(code: string): Promise<void>;
+  removePublicLobby(code: string): Promise<void>;
+  listPublicLobbies(): Promise<LobbyState[]>;
 }
 
 export interface CreateGameRecordInput {

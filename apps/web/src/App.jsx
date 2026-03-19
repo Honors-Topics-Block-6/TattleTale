@@ -3,13 +3,13 @@ import Lobby from './Lobby'
 import OS from './os/OS'
 
 function App() {
-  const [started, setStarted] = useState(false)
+  const [gameInfo, setGameInfo] = useState(null)
 
-  if (!started) {
-    return <Lobby onStart={() => setStarted(true)} />
+  if (!gameInfo) {
+    return <Lobby onStart={(info) => setGameInfo(info)} />
   }
 
-  return <OS />
+  return <OS gameInfo={gameInfo} />
 }
 
 export default App

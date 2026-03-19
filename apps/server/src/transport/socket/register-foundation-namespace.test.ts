@@ -105,6 +105,14 @@ class InMemoryRuntimeRepository implements RuntimeRepository {
 
     return structuredClone(binding);
   }
+
+  async addPublicLobby(_code: string): Promise<void> {}
+
+  async removePublicLobby(_code: string): Promise<void> {}
+
+  async listPublicLobbies(): Promise<LobbyState[]> {
+    return [];
+  }
 }
 
 class InMemoryAuditRepository implements GameAuditRepository {

@@ -508,6 +508,8 @@ export function registerFoundationNamespace(
             const displayName = validateDisplayName(command.displayName);
             const settings = parseLobbySettings(command.settings);
 
+            const isPublic = command.isPublic ?? false;
+
             const lobby: LobbyState = {
               code: lobbyCode,
               status: LobbyStatus.WAITING,
@@ -526,11 +528,16 @@ export function registerFoundationNamespace(
               ],
               settings,
               sessionId: null,
+              isPublic,
               createdAt: now,
               updatedAt: now,
             };
 
             await runtimeRepository.saveLobby(lobby);
+
+            if (isPublic) {
+              await runtimeRepository.addPublicLobby(lobby.code);
+            }
             await runtimeRepository.bindSocket({
               socketId: socket.id,
               lobbyCode: lobby.code,
@@ -746,6 +753,10 @@ export function registerFoundationNamespace(
               if (lobby.players.length === 0) {
                 lobby.status = LobbyStatus.CLOSED;
                 assignHost(lobby, null);
+
+                if (lobby.isPublic) {
+                  await runtimeRepository.removePublicLobby(lobby.code);
+                }
               } else if (removedPlayer.isHost) {
                 assignHost(lobby, selectNextHost(lobby.players));
               }
@@ -998,6 +1009,10 @@ export function registerFoundationNamespace(
             await runtimeRepository.saveSession(session);
             await runtimeRepository.saveLobby(lobby);
 
+            if (lobby.isPublic) {
+              await runtimeRepository.removePublicLobby(lobby.code);
+            }
+
             try {
               await auditRepository.createGameRecord({
                 gameId: session.gameId,
@@ -1157,6 +1172,37 @@ export function registerFoundationNamespace(
               acceptedIntentId: appendResult.intent.id,
               session: toSessionView(session),
             });
+          },
+        );
+      },
+    );
+
+    socket.on(
+      SOCKET_EVENTS.client.listPublicLobbies,
+      async (
+        _payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.listPublicLobbies],
+        ack?: (response: ClientCommandAcks[typeof SOCKET_EVENTS.client.listPublicLobbies]) => void,
+      ) => {
+        await runCommand(
+          socket,
+          SOCKET_EVENTS.client.listPublicLobbies,
+          _payload,
+          ack,
+          async () => {
+            const lobbies = await runtimeRepository.listPublicLobbies();
+
+            const items = lobbies.map((lobby) => {
+              const host = lobby.players.find((p) => p.playerId === lobby.hostPlayerId);
+
+              return {
+                code: lobby.code,
+                hostDisplayName: host?.displayName ?? 'Unknown',
+                playerCount: lobby.players.filter((p) => p.alive).length,
+                maxPlayers: lobby.settings.maxPlayers,
+              };
+            });
+
+            return commandSuccess({ lobbies: items });
           },
         );
       },
