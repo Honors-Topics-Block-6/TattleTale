@@ -1,0 +1,46 @@
+{
+  "hash": "de521b44",
+  "configHash": "ebeee7da",
+  "lockfileHash": "20cd7f05",
+  "browserHash": "118a4468",
+  "optimized": {
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "8335d849",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "9fb87a3e",
+      "needsInterop": true
+    },
+    "uuid": {
+      "src": "../../node_modules/uuid/dist/index.js",
+      "file": "uuid.js",
+      "fileHash": "913367fa",
+      "needsInterop": false
+    },
+    "zustand": {
+      "src": "../../node_modules/zustand/esm/index.mjs",
+      "file": "zustand.js",
+      "fileHash": "4c1328ec",
+      "needsInterop": false
+    },
+    "zustand/middleware/immer": {
+      "src": "../../node_modules/zustand/esm/middleware/immer.mjs",
+      "file": "zustand_middleware_immer.js",
+      "fileHash": "52cd5fad",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-NO6UH6X3": {
+      "file": "chunk-NO6UH6X3.js"
+    },
+    "chunk-5WRI5ZAA": {
+      "file": "chunk-5WRI5ZAA.js"
+    }
+  }
+}
