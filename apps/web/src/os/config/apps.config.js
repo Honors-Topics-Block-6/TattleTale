@@ -8,6 +8,7 @@ import TypingGame from '../../apps/TypingGame';
 import GameStore from '../../apps/GameStore';
 import TypingChallenge from '../../apps/TypingChallenge';
 import SystemDialog from '../../apps/SystemDialog';
+import AngryBirds from '../../apps/AngryBirds';
 
 // Registry of all available apps
 const appRegistry = {
@@ -18,6 +19,7 @@ const appRegistry = {
   [GameStore.id]: GameStore,
   [TypingChallenge.id]: TypingChallenge,
   [SystemDialog.id]: SystemDialog,
+  [AngryBirds.id]: AngryBirds,
 };
 
 // Default folder icon
