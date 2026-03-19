@@ -13,6 +13,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 
 import { DomainError } from '../../domain/errors.js';
+import { applyFirstNightAfterGameStart } from '../../domain/game/night-cycle.js';
 import { buildSessionFromLobby } from '../../domain/game/session-domain.js';
 import type { GameState } from '../../domain/game/types.js';
 import {
@@ -25,7 +26,7 @@ import {
   type LobbySettings,
   type LobbyState,
 } from '../../domain/lobby/types.js';
-import { toLobbyView, toSessionView } from '../../domain/projections.js';
+import { toLobbyView, toSessionViewForPlayer } from '../../domain/projections.js';
 import type {
   GameAuditRepository,
   RuntimeRepository,
@@ -102,10 +103,25 @@ function emitLobbyState(namespace: ReturnType<SocketIOServer['of']>, lobby: Lobb
     .emit(SOCKET_EVENTS.server.lobbyState, toLobbyView(lobby));
 }
 
-function emitSessionState(namespace: ReturnType<SocketIOServer['of']>, session: GameState): void {
-  namespace
-    .to(sessionRoom(session.gameId))
-    .emit(SOCKET_EVENTS.server.sessionState, toSessionView(session));
+async function emitSessionStateToParticipants(
+  namespace: ReturnType<SocketIOServer['of']>,
+  runtimeRepository: RuntimeRepository,
+  session: GameState,
+): Promise<void> {
+  const roomName = sessionRoom(session.gameId);
+  const socketIds = namespace.adapter.rooms.get(roomName);
+  if (!socketIds || socketIds.size === 0) {
+    return;
+  }
+
+  for (const socketId of socketIds) {
+    const binding = await runtimeRepository.getPresenceBySocket(socketId);
+    const viewerPlayerId = binding?.playerId ?? null;
+    namespace.to(socketId).emit(
+      SOCKET_EVENTS.server.sessionState,
+      toSessionViewForPlayer(session, viewerPlayerId),
+    );
+  }
 }
 
 function parseLobbySettings(settings?: Partial<LobbySettings>): LobbySettings {
@@ -521,7 +537,7 @@ export function registerFoundationNamespace(
                   await runtimeRepository.saveSession(session);
                 }
 
-                emitSessionState(namespace, session);
+                await emitSessionStateToParticipants(namespace, runtimeRepository, session);
               } else {
                 sessionId = null;
               }
@@ -632,7 +648,7 @@ export function registerFoundationNamespace(
             });
 
             emitLobbyState(namespace, lobby);
-            emitSessionState(namespace, session);
+            await emitSessionStateToParticipants(namespace, runtimeRepository, session);
 
             return commandSuccess<{ lobby: null }>({
               lobby: null,
@@ -730,7 +746,50 @@ export function registerFoundationNamespace(
             await runtimeRepository.saveSession(session);
 
             emitLobbyState(namespace, lobby);
-            emitSessionState(namespace, session);
+            await emitSessionStateToParticipants(namespace, runtimeRepository, session);
+
+            return commandSuccess<{ lobby: ReturnType<typeof toLobbyView> }>({
+              lobby: toLobbyView(lobby),
+            });
+          },
+        );
+      },
+    );
+
+    socket.on(
+      SOCKET_EVENTS.client.setLobbyReady,
+      async (
+        payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.setLobbyReady],
+        ack?: (response: ClientCommandAcks[typeof SOCKET_EVENTS.client.setLobbyReady]) => void,
+      ) => {
+        await runCommand(
+          socket,
+          SOCKET_EVENTS.client.setLobbyReady,
+          payload,
+          ack,
+          async (command) => {
+            const lobby = await requireLobby(runtimeRepository, command.lobbyCode);
+            const { player } = requirePlayerInLobby(lobby, command.playerId);
+
+            if (player.reconnectToken !== command.reconnectToken) {
+              throw new DomainError('INVALID_RECONNECT_TOKEN', 'Reconnect token is invalid.', 403);
+            }
+
+            await requireBoundSocket(runtimeRepository, socket, lobby.code, player.playerId);
+
+            if (lobby.status !== LobbyStatus.WAITING) {
+              throw new DomainError(
+                'LOBBY_NOT_WAITING',
+                'Ready state can only be changed while the lobby is waiting.',
+              );
+            }
+
+            const now = new Date().toISOString();
+            player.ready = command.ready;
+            touchLobby(lobby, now);
+
+            await runtimeRepository.saveLobby(lobby);
+            emitLobbyState(namespace, lobby);
 
             return commandSuccess<{ lobby: ReturnType<typeof toLobbyView> }>({
               lobby: toLobbyView(lobby),
@@ -780,9 +839,17 @@ export function registerFoundationNamespace(
               throw new DomainError('TOO_MANY_PLAYERS', 'Lobby exceeds max player count.');
             }
 
+            if (!lobby.players.every((lobbyPlayer) => lobbyPlayer.ready)) {
+              throw new DomainError(
+                'PLAYERS_NOT_READY',
+                'All players must be ready before starting the game.',
+              );
+            }
+
             const now = new Date().toISOString();
             const gameId = crypto.randomUUID();
             const session = buildSessionFromLobby(lobby, gameId, now);
+            applyFirstNightAfterGameStart(session, lobby, now);
 
             lobby.status = LobbyStatus.IN_GAME;
             lobby.sessionId = gameId;
@@ -797,14 +864,19 @@ export function registerFoundationNamespace(
                 lobbyCode: lobby.code,
                 phase: session.phase,
                 cycle: session.cycle,
-                players: lobby.players.map((player) => ({
-                  playerId: player.playerId,
-                  displayName: player.displayName,
-                  alive: player.alive,
-                  isHost: player.isHost,
-                  roleId: null,
-                  team: null,
-                })),
+                players: Object.values(session.players).map((sessionPlayer) => {
+                  const lobbyPlayer = lobby.players.find(
+                    (entry) => entry.playerId === sessionPlayer.playerId,
+                  );
+                  return {
+                    playerId: sessionPlayer.playerId,
+                    displayName: sessionPlayer.displayName,
+                    alive: sessionPlayer.alive,
+                    isHost: lobbyPlayer?.isHost ?? false,
+                    roleId: sessionPlayer.roleId,
+                    team: sessionPlayer.team,
+                  };
+                }),
               });
 
               await auditRepository.appendSessionEvent({
@@ -826,11 +898,11 @@ export function registerFoundationNamespace(
             namespace.in(lobbyRoom(lobby.code)).socketsJoin(sessionRoom(session.gameId));
 
             emitLobbyState(namespace, lobby);
-            emitSessionState(namespace, session);
+            await emitSessionStateToParticipants(namespace, runtimeRepository, session);
 
             return commandSuccess<StartGameSuccess>({
               lobby: toLobbyView(lobby),
-              session: toSessionView(session),
+              session: toSessionViewForPlayer(session, actor.playerId),
             });
           },
         );
@@ -886,7 +958,7 @@ export function registerFoundationNamespace(
         session.updatedAt = now;
 
         await runtimeRepository.saveSession(session);
-        emitSessionState(namespace, session);
+        await emitSessionStateToParticipants(namespace, runtimeRepository, session);
       } catch (error) {
         logger.error({ err: error, socketId: socket.id }, 'Disconnect cleanup failed');
       }

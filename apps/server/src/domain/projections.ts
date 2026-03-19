@@ -1,4 +1,4 @@
-import type { LobbyView, SessionView } from '@tattletale/shared';
+import type { LobbyView, SessionSelfView, SessionView } from '@tattletale/shared';
 
 import type { GameState } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -21,7 +21,7 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
   };
 }
 
-export function toSessionView(session: GameState): SessionView {
+function buildSessionViewBase(session: GameState): Omit<SessionView, 'self'> {
   return {
     gameId: session.gameId,
     lobbyCode: session.lobbyCode,
@@ -47,4 +47,35 @@ export function toSessionView(session: GameState): SessionView {
       createdAt: event.createdAt,
     })),
   };
+}
+
+export function toSessionViewForPlayer(
+  session: GameState,
+  viewerPlayerId: string | null,
+): SessionView {
+  const base = buildSessionViewBase(session);
+
+  let self: SessionSelfView | null = null;
+  if (viewerPlayerId) {
+    const viewer = session.players[viewerPlayerId];
+    if (viewer) {
+      const team =
+        viewer.team === 'HACKER' || viewer.team === 'FRIEND' ? viewer.team : null;
+      self = {
+        playerId: viewerPlayerId,
+        sleeping: viewer.sleeping,
+        team,
+      };
+    }
+  }
+
+  return {
+    ...base,
+    self,
+  };
+}
+
+/** Broadcast-safe view without a `self` snapshot (e.g. logs/tests). */
+export function toSessionView(session: GameState): SessionView {
+  return toSessionViewForPlayer(session, null);
 }

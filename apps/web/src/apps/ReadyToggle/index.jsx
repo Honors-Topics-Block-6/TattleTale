@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
+import { SOCKET_EVENTS } from '@tattletale/shared';
+import { lobbySocketRef } from '../../lib/lobbySocketRef';
 
 const STORAGE_KEY = 'tattletale-chat-identity';
 const READY_PREFIX = 'tattletale-ready:';
+
+const CHAT_SERVER_URL = import.meta.env.VITE_CHAT_SERVER_URL || 'http://localhost:3001';
 
 function safeParse(json) {
   try {
@@ -28,11 +32,18 @@ function readyStorageKey(lobbyCode, username) {
 function ReadyToggleComponent() {
   const [ready, setReady] = useState(false);
   const [identity, setIdentity] = useState(() => getIdentity());
+  const [startMessage, setStartMessage] = useState('');
+  const [starting, setStarting] = useState(false);
 
   const lobbyCode = identity?.sessionId || null;
   const username = identity?.username || null;
 
   const key = readyStorageKey(lobbyCode, username);
+
+  const isHost =
+    identity?.playerId &&
+    identity?.hostPlayerId &&
+    identity.playerId === identity.hostPlayerId;
 
   useEffect(() => {
     const sync = () => {
@@ -45,9 +56,7 @@ function ReadyToggleComponent() {
     const onReadyChanged = (e) => {
       const detail = e?.detail;
       if (!detail) return;
-      // Refresh identity in case the lobby/username was just set.
       setIdentity(getIdentity());
-      // If the event affects our current key, update the UI.
       if (detail?.lobbyCode && detail?.usernameKey && key) {
         const expected = readyStorageKey(detail.lobbyCode, detail.usernameKey);
         if (expected === key) setReady(Boolean(detail.value));
@@ -57,6 +66,41 @@ function ReadyToggleComponent() {
     window.addEventListener('tattletale:ready-changed', onReadyChanged);
     return () => window.removeEventListener('tattletale:ready-changed', onReadyChanged);
   }, [key]);
+
+  const onStartGame = () => {
+    setStartMessage('');
+    const id = getIdentity();
+    const socket = lobbySocketRef.current;
+    if (!socket?.connected) {
+      setStartMessage(`Connect in Chat Room first (${CHAT_SERVER_URL}).`);
+      return;
+    }
+    if (!id?.playerId || !id?.reconnectToken || !id?.sessionId) {
+      setStartMessage('Join a lobby in Chat Room first.');
+      return;
+    }
+    if (id.playerId !== id.hostPlayerId) {
+      setStartMessage('Only the lobby host can start the game.');
+      return;
+    }
+    setStarting(true);
+    socket.emit(
+      SOCKET_EVENTS.client.startGame,
+      {
+        lobbyCode: id.sessionId,
+        actorPlayerId: id.playerId,
+        reconnectToken: id.reconnectToken,
+      },
+      (ack) => {
+        setStarting(false);
+        if (!ack?.ok) {
+          setStartMessage(ack?.error?.message || 'Could not start game.');
+          return;
+        }
+        setStartMessage('Game started — night cycle began.');
+      },
+    );
+  };
 
   return (
     <div
@@ -71,16 +115,39 @@ function ReadyToggleComponent() {
         fontFamily: 'Tahoma, sans-serif',
         fontSize: 12,
         padding: 12,
-        gap: 6,
+        gap: 10,
       }}
     >
       <div style={{ fontWeight: 700 }}>Ready Toggle</div>
       <div>
         Status: <strong>{ready ? 'READY' : 'UNREADY'}</strong>
       </div>
-      <div style={{ color: '#555', maxWidth: 200 }}>
-        Use the desktop icon to toggle your readiness in the lobby.
+      <div style={{ color: '#555', maxWidth: 220 }}>
+        Use the desktop icon to toggle readiness. Everyone must be ready before the host starts.
       </div>
+      {isHost ? (
+        <button
+          type="button"
+          onClick={onStartGame}
+          disabled={starting}
+          style={{
+            padding: '8px 14px',
+            cursor: starting ? 'wait' : 'pointer',
+            border: '1px solid #3b5f9a',
+            borderRadius: 4,
+            background: 'linear-gradient(180deg, #fefefe 0%, #dce8fb 100%)',
+            fontFamily: 'Tahoma, sans-serif',
+            fontSize: 12,
+          }}
+        >
+          {starting ? 'Starting…' : 'Shut off (Start game)'}
+        </button>
+      ) : (
+        <div style={{ color: '#777', fontSize: 11 }}>Waiting for host to start…</div>
+      )}
+      {startMessage ? (
+        <div style={{ color: '#315280', fontSize: 11, maxWidth: 240 }}>{startMessage}</div>
+      ) : null}
     </div>
   );
 }
@@ -98,11 +165,11 @@ const ReadyToggle = {
   icon: readyIcon,
   component: ReadyToggleComponent,
   defaultWindow: {
-    width: 250,
-    height: 160,
+    width: 280,
+    height: 220,
     resizable: false,
-    minWidth: 250,
-    minHeight: 160,
+    minWidth: 280,
+    minHeight: 220,
   },
   desktopIcon: {
     show: true,
@@ -114,4 +181,3 @@ const ReadyToggle = {
 };
 
 export default ReadyToggle;
-

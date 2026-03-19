@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import {
+  Phase,
   SOCKET_EVENTS,
   SOCKET_NAMESPACE,
   type ClientCommandAcks,
@@ -247,6 +248,41 @@ describe('registerFoundationNamespace', () => {
     return ack.data;
   }
 
+  async function setLobbyPlayerReady(
+    socket: ClientSocket,
+    lobbyCode: string,
+    playerId: string,
+    reconnectToken: string,
+    ready: boolean,
+  ): Promise<void> {
+    const ack = await emitAck(socket, SOCKET_EVENTS.client.setLobbyReady, {
+      lobbyCode,
+      playerId,
+      reconnectToken,
+      ready,
+    });
+    expect(ack.ok).toBe(true);
+  }
+
+  async function markLobbyPlayersReady(
+    lobbyCode: string,
+    entries: Array<{
+      socket: ClientSocket;
+      playerId: string;
+      reconnectToken: string;
+    }>,
+  ): Promise<void> {
+    for (const entry of entries) {
+      await setLobbyPlayerReady(
+        entry.socket,
+        lobbyCode,
+        entry.playerId,
+        entry.reconnectToken,
+        true,
+      );
+    }
+  }
+
   beforeEach(async () => {
     runtimeRepository = new InMemoryRuntimeRepository();
     auditRepository = new InMemoryAuditRepository();
@@ -396,10 +432,29 @@ describe('registerFoundationNamespace', () => {
     const { socket: host } = await connectClient();
     const created = await createLobby(host, 'HostPlayer');
 
+    const readyEntries: Array<{
+      socket: ClientSocket;
+      playerId: string;
+      reconnectToken: string;
+    }> = [
+      {
+        socket: host,
+        playerId: created.playerId,
+        reconnectToken: created.reconnectToken,
+      },
+    ];
+
     for (let index = 0; index < 6; index += 1) {
       const { socket: playerSocket } = await connectClient();
-      await joinLobby(playerSocket, created.lobby.code, `Player${index + 2}`);
+      const joined = await joinLobby(playerSocket, created.lobby.code, `Player${index + 2}`);
+      readyEntries.push({
+        socket: playerSocket,
+        playerId: joined.playerId,
+        reconnectToken: joined.reconnectToken,
+      });
     }
+
+    await markLobbyPlayersReady(created.lobby.code, readyEntries);
 
     const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
       lobbyCode: created.lobby.code,
@@ -442,6 +497,15 @@ describe('registerFoundationNamespace', () => {
         player: joined,
       });
     }
+
+    await markLobbyPlayersReady(created.lobby.code, [
+      { socket: host, playerId: created.playerId, reconnectToken: created.reconnectToken },
+      ...participants.map((p) => ({
+        socket: p.socket,
+        playerId: p.player.playerId,
+        reconnectToken: p.player.reconnectToken,
+      })),
+    ]);
 
     const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
       lobbyCode: created.lobby.code,
@@ -503,6 +567,15 @@ describe('registerFoundationNamespace', () => {
         player: joined,
       });
     }
+
+    await markLobbyPlayersReady(created.lobby.code, [
+      { socket: host, playerId: created.playerId, reconnectToken: created.reconnectToken },
+      ...participants.map((p) => ({
+        socket: p.socket,
+        playerId: p.player.playerId,
+        reconnectToken: p.player.reconnectToken,
+      })),
+    ]);
 
     const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
       lobbyCode: created.lobby.code,
@@ -567,10 +640,29 @@ describe('registerFoundationNamespace', () => {
     const { socket: host } = await connectClient();
     const created = await createLobby(host, 'HostPlayer');
 
+    const readyEntries: Array<{
+      socket: ClientSocket;
+      playerId: string;
+      reconnectToken: string;
+    }> = [
+      {
+        socket: host,
+        playerId: created.playerId,
+        reconnectToken: created.reconnectToken,
+      },
+    ];
+
     for (let index = 0; index < 6; index += 1) {
       const { socket: playerSocket } = await connectClient();
-      await joinLobby(playerSocket, created.lobby.code, `Player${index + 2}`);
+      const joined = await joinLobby(playerSocket, created.lobby.code, `Player${index + 2}`);
+      readyEntries.push({
+        socket: playerSocket,
+        playerId: joined.playerId,
+        reconnectToken: joined.reconnectToken,
+      });
     }
+
+    await markLobbyPlayersReady(created.lobby.code, readyEntries);
 
     const sessionStatePromise = onceEvent<SessionView>(host, SOCKET_EVENTS.server.sessionState);
 
@@ -584,5 +676,7 @@ describe('registerFoundationNamespace', () => {
     const sessionState = await sessionStatePromise;
     expect(sessionState.lobbyCode).toBe(created.lobby.code);
     expect(sessionState.players).toHaveLength(7);
+    expect(sessionState.phase).toBe(Phase.NIGHT_ACTIONS);
+    expect(sessionState.self?.playerId).toBe(created.playerId);
   });
 });

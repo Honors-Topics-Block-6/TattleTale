@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { SOCKET_EVENTS } from '@tattletale/shared';
+import { lobbySocketRef } from '../../../lib/lobbySocketRef';
 import useWindowStore from '../../store/windowStore';
 import { getAppConfig } from '../../config/apps.config';
 
@@ -29,6 +31,18 @@ export default function DesktopIcon({ appId, name, icon }) {
     const next = !current;
 
     localStorage.setItem(readyKey, next ? 'true' : 'false');
+
+    const playerId = parsed?.playerId;
+    const reconnectToken = parsed?.reconnectToken;
+    const socket = lobbySocketRef.current;
+    if (socket?.connected && playerId && reconnectToken) {
+      socket.emit(SOCKET_EVENTS.client.setLobbyReady, {
+        lobbyCode,
+        playerId,
+        reconnectToken,
+        ready: next,
+      });
+    }
 
     // Notify the currently open lobby UI (same tab) to sync display.
     window.dispatchEvent(

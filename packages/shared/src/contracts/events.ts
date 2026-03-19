@@ -4,6 +4,7 @@ import type {
   KickPlayerCommand,
   LeaveLobbyCommand,
   ReconnectCommand,
+  SetLobbyReadyCommand,
   StartGameCommand,
 } from './commands.js';
 import type { CommandAck, CommandErrorPayload } from './errors.js';
@@ -24,6 +25,7 @@ export const SOCKET_EVENTS = {
     reconnect: 'lobby:reconnect',
     leaveLobby: 'lobby:leave',
     kickPlayer: 'lobby:kick-player',
+    setLobbyReady: 'lobby:set-ready',
     startGame: 'game:start',
   },
   server: {
@@ -44,6 +46,7 @@ export interface ClientCommandPayloads {
   [SOCKET_EVENTS.client.reconnect]: ReconnectCommand;
   [SOCKET_EVENTS.client.leaveLobby]: LeaveLobbyCommand;
   [SOCKET_EVENTS.client.kickPlayer]: KickPlayerCommand;
+  [SOCKET_EVENTS.client.setLobbyReady]: SetLobbyReadyCommand;
   [SOCKET_EVENTS.client.startGame]: StartGameCommand;
 }
 
@@ -53,6 +56,7 @@ export interface ClientCommandAcks {
   [SOCKET_EVENTS.client.reconnect]: CommandAck<LobbyCommandSuccess>;
   [SOCKET_EVENTS.client.leaveLobby]: CommandAck<{ lobby: LobbyView | null }>;
   [SOCKET_EVENTS.client.kickPlayer]: CommandAck<{ lobby: LobbyView }>;
+  [SOCKET_EVENTS.client.setLobbyReady]: CommandAck<{ lobby: LobbyView }>;
   [SOCKET_EVENTS.client.startGame]: CommandAck<StartGameSuccess>;
 }
 
