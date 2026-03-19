@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 
-const GRAVITY = 0.2;
+const GAME_W = 750;
+const GAME_H = 460;
+const GRAVITY = 0.22;
 const GROUND_Y_RATIO = 0.85;
 const SLING_X_RATIO = 0.15;
 const SLING_Y_RATIO = 0.65;
@@ -162,6 +164,69 @@ function createLevels(w, h) {
         { x: baseX + 230, y: gnd - pigR, r: pigR, hp: 2, color: 'pink' },
       ],
     },
+
+    // --- LEVEL 6: pyramid — stacked wood steps with pigs on each tier ---
+    {
+      name: 'Level 6 — Pyramid',
+      birds: ['yellow', 'red', 'blue', 'yellow'],
+      minScore: 8000,
+      blocks: [
+        // base row
+        { x: baseX,       y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 40,  y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 80,  y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 120, y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 160, y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        // second row
+        { x: baseX + 20,  y: gnd - bh - bs - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 80,  y: gnd - bh - bs - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 140, y: gnd - bh - bs - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        // shelves
+        { x: baseX + 10,  y: gnd - bh - bs,       w: 60, h: bs, type: 'wood', hp: 2 },
+        { x: baseX + 100, y: gnd - bh - bs,       w: 80, h: bs, type: 'wood', hp: 2 },
+        // top
+        { x: baseX + 80,  y: gnd - bh - bs - bh - bs - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 80,  y: gnd - bh - bs - bh - bs - bh - bs, w: 40, h: bs, type: 'stone', hp: 3 },
+      ],
+      pigs: [
+        { x: baseX + 40,  y: gnd - pigR, r: pigR, hp: 1, color: 'green' },
+        { x: baseX + 120, y: gnd - pigR, r: pigR, hp: 1, color: 'green' },
+        { x: baseX + 80,  y: gnd - bh - bs - pigR, r: pigR, hp: 2, color: 'gold' },
+        { x: baseX + 80,  y: gnd - bh - bs - bh - bs - bh - pigR, r: pigR, hp: 2, color: 'purple' },
+      ],
+    },
+
+    // --- LEVEL 7: scattered outposts — five separate small structures spread wide ---
+    {
+      name: 'Level 7 — Scattered',
+      birds: ['red', 'blue', 'yellow', 'pink', 'red'],
+      minScore: 10000,
+      blocks: [
+        // post 1
+        { x: baseX - 20,  y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 20,  y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX,       y: gnd - bh - bs, w: 60, h: bs, type: 'wood', hp: 2 },
+        // post 2
+        { x: baseX + 75,  y: gnd - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 115, y: gnd - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 95,  y: gnd - bh - bs, w: 60, h: bs, type: 'stone', hp: 3 },
+        // post 3
+        { x: baseX + 155, y: gnd - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        { x: baseX + 155, y: gnd - bh - bs - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+        // post 4
+        { x: baseX + 210, y: gnd - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 250, y: gnd - bh, w: bw, h: bh, type: 'stone', hp: 3 },
+        { x: baseX + 230, y: gnd - bh - bs, w: 60, h: bs, type: 'wood', hp: 2 },
+        { x: baseX + 230, y: gnd - bh - bs - bh, w: bw, h: bh, type: 'wood', hp: 2 },
+      ],
+      pigs: [
+        { x: baseX,       y: gnd - bh - bs - pigR, r: pigR, hp: 1, color: 'green' },
+        { x: baseX + 95,  y: gnd - bh - bs - pigR, r: pigR, hp: 2, color: 'blue' },
+        { x: baseX + 155, y: gnd - bh - bs - bh - pigR, r: pigR, hp: 1, color: 'pink' },
+        { x: baseX + 230, y: gnd - bh - bs - pigR, r: pigR, hp: 2, color: 'purple' },
+        { x: baseX + 230, y: gnd - bh - bs - bh - pigR, r: pigR, hp: 1, color: 'gold' },
+      ],
+    },
   ];
 }
 
@@ -204,6 +269,7 @@ function drawStarShape(ctx, cx, cy, spikes, outerR, innerR) {
 
 function AngryBirdsComponent({ windowId, onLevelComplete }) {
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   const gameRef = useRef(null);
   const animRef = useRef(null);
   const [score, setScore] = useState(0);
@@ -260,15 +326,35 @@ function AngryBirdsComponent({ windowId, onLevelComplete }) {
     setTimeout(() => setMessage(''), 1500);
   }, []);
 
+  // Fix canvas to a constant resolution and CSS-scale it to fit without stretching.
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
-    canvas.width = w;
-    canvas.height = h;
-    initLevel(levelIdx, w, h);
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    canvas.width = GAME_W;
+    canvas.height = GAME_H;
+
+    function updateScale() {
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      const scale = Math.min(cw / GAME_W, ch / GAME_H);
+      const sw = Math.floor(GAME_W * scale);
+      const sh = Math.floor(GAME_H * scale);
+      canvas.style.width = `${sw}px`;
+      canvas.style.height = `${sh}px`;
+      canvas.style.left = `${Math.floor((cw - sw) / 2)}px`;
+      canvas.style.top = `${Math.floor((ch - sh) / 2)}px`;
+    }
+
+    const ro = new ResizeObserver(updateScale);
+    ro.observe(container);
+    updateScale();
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    initLevel(levelIdx, GAME_W, GAME_H);
   }, [levelIdx, resetKey, initLevel]);
 
   useEffect(() => {
@@ -384,16 +470,19 @@ function AngryBirdsComponent({ windowId, onLevelComplete }) {
             const damage = Math.max(1, Math.ceil(speed / 3));
             block.hp -= damage;
 
-            block.vx += bird.vx * 0.5;
-            block.vy += bird.vy * 0.4 - 1.5;
+            // Transfer momentum proportional to impact speed — no artificial upward kick
+            const impactFactor = block.type === 'stone' ? 0.22 : 0.38;
+            block.vx += bird.vx * impactFactor;
+            block.vy += bird.vy * impactFactor;
 
+            // Bird deflects off the block surface but keeps ~40% speed to punch through structures
             const bCenterX = block.x;
             const bCenterY = block.y + block.h / 2;
             const nx = bird.x - bCenterX;
             const ny = bird.y - bCenterY;
             const len = Math.sqrt(nx * nx + ny * ny) || 1;
-            bird.vx = (nx / len) * speed * 0.15;
-            bird.vy = (ny / len) * speed * 0.15;
+            bird.vx = (nx / len) * speed * 0.4;
+            bird.vy = (ny / len) * speed * 0.4;
 
             addShake(g, Math.min(speed * 0.8, 8));
             addShockwave(g, bird.x, bird.y, 30 + speed * 2, 'rgba(255,200,100,0.5)');
@@ -469,19 +558,53 @@ function AngryBirdsComponent({ windowId, onLevelComplete }) {
         }
       }
 
-      for (const block of g.blocks) {
-        if (block.destroyed) continue;
-        for (const other of g.blocks) {
-          if (other === block || other.destroyed) continue;
-          if (!blocksOverlapX(block, other)) continue;
-          if (block.y + block.h > other.y && block.y < other.y && block.y + block.h < other.y + other.h * 0.6) {
-            block.y = other.y - block.h;
-            if (block.vy > 1.5) {
-              other.vy += block.vy * 0.3;
-              other.vx += block.vx * 0.2;
+      // AABB block-block collision with minimum-translation-vector resolution
+      for (let bi = 0; bi < g.blocks.length; bi++) {
+        const a = g.blocks[bi];
+        if (a.destroyed) continue;
+        for (let bj = bi + 1; bj < g.blocks.length; bj++) {
+          const b = g.blocks[bj];
+          if (b.destroyed) continue;
+
+          const ax1 = a.x - a.w / 2, ax2 = a.x + a.w / 2;
+          const ay1 = a.y,           ay2 = a.y + a.h;
+          const bx1 = b.x - b.w / 2, bx2 = b.x + b.w / 2;
+          const by1 = b.y,           by2 = b.y + b.h;
+
+          const overlapX = Math.min(ax2 - bx1, bx2 - ax1);
+          const overlapY = Math.min(ay2 - by1, by2 - ay1);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+
+          if (overlapX < overlapY) {
+            // Separate horizontally
+            const dir = a.x < b.x ? 1 : -1;
+            const push = overlapX * 0.5;
+            a.x -= dir * push;
+            b.x += dir * push;
+            const avgVx = (a.vx + b.vx) * 0.5;
+            a.vx = avgVx * 0.85;
+            b.vx = avgVx * 0.85;
+          } else {
+            // Separate vertically
+            if (a.y < b.y) {
+              // a is above b
+              a.y = by1 - a.h;
+              if (a.vy > 0.5) {
+                b.vy += a.vy * 0.25;
+                b.vx += a.vx * 0.08;
+              }
+              a.vy = 0;
+              a.vx *= 0.85;
+            } else {
+              // b is above a
+              b.y = ay1 - b.h;
+              if (b.vy > 0.5) {
+                a.vy += b.vy * 0.25;
+                a.vx += b.vx * 0.08;
+              }
+              b.vy = 0;
+              b.vx *= 0.85;
             }
-            block.vy = 0;
-            block.vx *= 0.8;
           }
         }
       }
@@ -1244,16 +1367,20 @@ function AngryBirdsComponent({ windowId, onLevelComplete }) {
   }, []);
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      background: '#000',
-      overflow: 'hidden',
-      cursor: phase === 'aiming' ? 'crosshair' : 'default',
-    }}>
+    <div
+      ref={containerRef}
+      style={{
+        width: '100%',
+        height: '100%',
+        background: '#1a2a1a',
+        overflow: 'hidden',
+        position: 'relative',
+        cursor: phase === 'aiming' ? 'crosshair' : 'default',
+      }}
+    >
       <canvas
         ref={canvasRef}
-        style={{ width: '100%', height: '100%', display: 'block' }}
+        style={{ position: 'absolute', display: 'block' }}
       />
     </div>
   );
@@ -1281,11 +1408,11 @@ const AngryBirds = {
   icon: angryBirdsIcon,
   component: AngryBirdsComponent,
   defaultWindow: {
-    width: 750,
-    height: 480,
+    width: 560,
+    height: 400,
     resizable: true,
-    minWidth: 600,
-    minHeight: 400,
+    minWidth: 320,
+    minHeight: 240,
   },
   menuBar: {
     items: [
@@ -1308,9 +1435,9 @@ const AngryBirds = {
       },
     ],
   },
-  desktopIcon: { show: false },
+  desktopIcon: { show: true },
   startMenu: {
-    show: false,
+    show: true,
     section: 'programs',
     description: 'Launch birds at pigs!',
   },
