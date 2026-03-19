@@ -1,0 +1,204 @@
+.tertys-root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--xp-window-bg);
+  padding: 8px;
+  gap: 8px;
+  font-family: var(--xp-font-family);
+  user-select: none;
+}
+
+.tertys-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tertys-highscore {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, #fff 0%, #f6f4ea 100%);
+  border: 1px solid var(--xp-button-shadow);
+  box-shadow:
+    inset 1px 1px 0 var(--xp-button-highlight),
+    inset -1px -1px 0 var(--xp-button-dark-shadow);
+}
+
+.tertys-label {
+  font-weight: bold;
+  color: #0a246a;
+  letter-spacing: 0.2px;
+}
+
+.tertys-value {
+  font-family: 'Lucida Console', Consolas, monospace;
+  font-size: 14px;
+  padding: 1px 6px;
+  background: #fff;
+  border: 2px inset #888;
+  min-width: 80px;
+  text-align: right;
+}
+
+.tertys-btn {
+  padding: 5px 10px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #fff 0%, #ece9d8 55%, #d4d0c8 100%);
+  cursor: pointer;
+  font-family: Tahoma, sans-serif;
+  font-size: 12px;
+  box-shadow:
+    inset 1px 1px 0 var(--xp-button-highlight),
+    inset -1px -1px 0 var(--xp-button-dark-shadow);
+}
+
+.tertys-btn:hover {
+  background: linear-gradient(180deg, #fff 0%, var(--xp-button-hover) 55%, var(--xp-button-face) 100%);
+}
+
+.tertys-btn:active {
+  background: var(--xp-button-pressed);
+  box-shadow:
+    inset -1px -1px 0 var(--xp-button-highlight),
+    inset 1px 1px 0 var(--xp-button-dark-shadow);
+}
+
+.tertys-body {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  min-height: 0;
+}
+
+.tertys-game {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.tertys-frame {
+  padding: 6px;
+  background: #c0c0c0;
+  border: 2px inset #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.tertys-board {
+  display: block;
+  image-rendering: pixelated;
+  background: #0b1a2e;
+}
+
+.tertys-side {
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tertys-group {
+  padding: 8px;
+  background: linear-gradient(180deg, #fff 0%, #f7f5ee 100%);
+  border: 1px solid var(--xp-button-shadow);
+  box-shadow:
+    inset 1px 1px 0 var(--xp-button-highlight),
+    inset -1px -1px 0 var(--xp-button-dark-shadow);
+}
+
+.tertys-group-title {
+  font-weight: bold;
+  color: #0a246a;
+  margin-bottom: 6px;
+}
+
+.tertys-score {
+  font-family: 'Lucida Console', Consolas, monospace;
+  font-size: 18px;
+  background: #fff;
+  border: 2px inset #888;
+  padding: 4px 6px;
+  text-align: right;
+  margin-bottom: 6px;
+}
+
+.tertys-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.tertys-meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: Tahoma, sans-serif;
+}
+
+.tertys-meta-k {
+  color: #333;
+}
+
+.tertys-meta-v {
+  font-family: 'Lucida Console', Consolas, monospace;
+}
+
+.tertys-next-frame {
+  display: flex;
+  justify-content: center;
+}
+
+.tertys-next {
+  image-rendering: pixelated;
+  border: 2px inset #888;
+  background: #0b1a2e;
+}
+
+.tertys-controls {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.tertys-controls b {
+  font-family: 'Lucida Console', Consolas, monospace;
+}
+
+.tertys-controls-muted {
+  color: #666;
+  margin-top: 4px;
+}
+
+.tertys-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  background: #f3f2ea;
+  border: 1px solid #aca899;
+  box-shadow:
+    inset 1px 1px 0 #fff,
+    inset -1px -1px 0 #716f64;
+  min-height: 22px;
+}
+
+.tertys-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #222;
+}
+
+.tertys-status-right {
+  flex-shrink: 0;
+  color: #333;
+  font-family: 'Lucida Console', Consolas, monospace;
+}
+
