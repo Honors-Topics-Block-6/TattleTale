@@ -5,6 +5,10 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import TypingGame from '../../apps/TypingGame';
+import GameStore from '../../apps/GameStore';
+import TypingChallenge from '../../apps/TypingChallenge';
+import SystemDialog from '../../apps/SystemDialog';
+import AngryBirds from '../../apps/AngryBirds';
 
 // Registry of all available apps
 const appRegistry = {
@@ -12,6 +16,10 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [TypingGame.id]: TypingGame,
+  [GameStore.id]: GameStore,
+  [TypingChallenge.id]: TypingChallenge,
+  [SystemDialog.id]: SystemDialog,
+  [AngryBirds.id]: AngryBirds,
 };
 
 // Default folder icon

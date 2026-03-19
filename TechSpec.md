@@ -26,7 +26,7 @@
 ### Client
 
 - TypeScript
-- React (Next.js)
+- React (Vite)
 - Zustand (local state)
 - Tailwind CSS (CSS but with some nice things)
 - WebSocket transport (For all the real-time device-to-device communication)
