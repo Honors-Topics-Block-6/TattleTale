@@ -8,6 +8,7 @@ import {
   Team,
   SOCKET_EVENTS,
   SOCKET_NAMESPACE,
+  type ChatMessageView,
   type ClientCommandAcks,
   type ClientCommandPayloads,
   type LobbyCommandSuccess,
@@ -280,6 +281,13 @@ describe('registerFoundationNamespace', () => {
     payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.submitIntent],
   ): Promise<ClientCommandAcks[typeof SOCKET_EVENTS.client.submitIntent]> {
     return emitAck(socket, SOCKET_EVENTS.client.submitIntent, payload);
+  }
+
+  async function sendChat(
+    socket: ClientSocket,
+    payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.chatSend],
+  ): Promise<ClientCommandAcks[typeof SOCKET_EVENTS.client.chatSend]> {
+    return emitAck(socket, SOCKET_EVENTS.client.chatSend, payload);
   }
 
   beforeEach(async () => {
@@ -596,6 +604,194 @@ describe('registerFoundationNamespace', () => {
       const player = lobby?.players.find((entry) => entry.playerId === joined.playerId);
       return player?.connected === false && player.alive === true;
     });
+  });
+
+  it('broadcasts lobby-phase global chat and persists message audit', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+
+    const { socket: joiner } = await connectClient();
+    const joined = await joinLobby(joiner, created.lobby.code, 'Joiner');
+
+    const hostMessage = onceEvent<ChatMessageView>(host, SOCKET_EVENTS.server.chatMessage);
+    const joinerMessage = onceEvent<ChatMessageView>(joiner, SOCKET_EVENTS.server.chatMessage);
+
+    const chatAck = await sendChat(host, {
+      lobbyCode: created.lobby.code,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      text: 'hello from lobby',
+    });
+
+    expect(chatAck.ok).toBe(true);
+    if (!chatAck.ok) {
+      throw new Error('Expected chat send to succeed.');
+    }
+
+    const [hostEvent, joinerEvent] = await Promise.all([hostMessage, joinerMessage]);
+    expect(hostEvent.messageId).toBe(chatAck.data.message.messageId);
+    expect(joinerEvent.messageId).toBe(chatAck.data.message.messageId);
+    expect(hostEvent.senderPlayerId).toBe(created.playerId);
+    expect(joinerEvent.lobbyCode).toBe(created.lobby.code);
+    expect(joinerEvent.senderDisplayName).toBe('HostPlayer');
+    expect(joined.playerId).not.toBe(created.playerId);
+
+    expect(auditRepository.messageEvents).toHaveLength(1);
+    expect(auditRepository.messageEvents[0].gameId).toBeNull();
+    expect(auditRepository.messageEvents[0].lobbyCode).toBe(created.lobby.code);
+    expect(auditRepository.messageEvents[0].channelId).toBe('global');
+  });
+
+  it('broadcasts in-game global chat to session members and stores game-linked audit', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+
+    const participants: Array<{ socket: ClientSocket; player: LobbyCommandSuccess }> = [];
+    for (let index = 0; index < 6; index += 1) {
+      const connection = await connectClient();
+      const joined = await joinLobby(connection.socket, created.lobby.code, `Player${index + 2}`);
+      participants.push({
+        socket: connection.socket,
+        player: joined,
+      });
+    }
+
+    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
+      lobbyCode: created.lobby.code,
+      actorPlayerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+    });
+    expect(startAck.ok).toBe(true);
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+
+    const receiver = participants[0];
+    const hostMessage = onceEvent<ChatMessageView>(host, SOCKET_EVENTS.server.chatMessage);
+    const receiverMessage = onceEvent<ChatMessageView>(
+      receiver.socket,
+      SOCKET_EVENTS.server.chatMessage,
+    );
+
+    const chatAck = await sendChat(host, {
+      lobbyCode: created.lobby.code,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      text: 'hello from session',
+    });
+
+    expect(chatAck.ok).toBe(true);
+    if (!chatAck.ok) {
+      throw new Error('Expected in-game chat send to succeed.');
+    }
+    expect(chatAck.data.message.gameId).toBe(startAck.data.session.gameId);
+
+    const [hostEvent, receiverEvent] = await Promise.all([hostMessage, receiverMessage]);
+    expect(hostEvent.messageId).toBe(chatAck.data.message.messageId);
+    expect(receiverEvent.messageId).toBe(chatAck.data.message.messageId);
+    expect(receiverEvent.gameId).toBe(startAck.data.session.gameId);
+
+    const latestAudit = auditRepository.messageEvents[auditRepository.messageEvents.length - 1];
+    expect(latestAudit.gameId).toBe(startAck.data.session.gameId);
+    expect(latestAudit.lobbyCode).toBe(created.lobby.code);
+  });
+
+  it('rejects chat when payload/token/binding/alive requirements are not met', async () => {
+    const { socket: host } = await connectClient();
+    const created = await createLobby(host, 'HostPlayer');
+
+    const participants: Array<{ socket: ClientSocket; player: LobbyCommandSuccess }> = [];
+    for (let index = 0; index < 6; index += 1) {
+      const connection = await connectClient();
+      const joined = await joinLobby(connection.socket, created.lobby.code, `Player${index + 2}`);
+      participants.push({
+        socket: connection.socket,
+        player: joined,
+      });
+    }
+
+    const startAck = await emitAck(host, SOCKET_EVENTS.client.startGame, {
+      lobbyCode: created.lobby.code,
+      actorPlayerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+    });
+    expect(startAck.ok).toBe(true);
+    if (!startAck.ok) {
+      throw new Error('Expected start game to succeed.');
+    }
+
+    const invalidTextAck = await sendChat(host, {
+      lobbyCode: created.lobby.code,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      text: '   ',
+    });
+    expect(invalidTextAck.ok).toBe(false);
+    if (!invalidTextAck.ok) {
+      expect(invalidTextAck.error.code).toBe('INVALID_CHAT_TEXT');
+    }
+
+    const badTokenAck = await sendChat(host, {
+      lobbyCode: created.lobby.code,
+      playerId: created.playerId,
+      reconnectToken: `${created.reconnectToken}-bad`,
+      text: 'hello',
+    });
+    expect(badTokenAck.ok).toBe(false);
+    if (!badTokenAck.ok) {
+      expect(badTokenAck.error.code).toBe('INVALID_RECONNECT_TOKEN');
+    }
+
+    const { socket: outsider } = await connectClient();
+    const unboundAck = await sendChat(outsider, {
+      lobbyCode: created.lobby.code,
+      playerId: created.playerId,
+      reconnectToken: created.reconnectToken,
+      text: 'hello',
+    });
+    expect(unboundAck.ok).toBe(false);
+    if (!unboundAck.ok) {
+      expect(unboundAck.error.code).toBe('SOCKET_NOT_BOUND');
+    }
+
+    const target = participants[0].player;
+    const lobby = await runtimeRepository.getLobby(created.lobby.code);
+    expect(lobby).not.toBeNull();
+    if (!lobby) {
+      throw new Error('Lobby should exist.');
+    }
+    const lobbyTarget = lobby.players.find((player) => player.playerId === target.playerId);
+    expect(lobbyTarget).toBeTruthy();
+    if (!lobbyTarget) {
+      throw new Error('Target player should exist in lobby.');
+    }
+    lobbyTarget.alive = false;
+    await runtimeRepository.saveLobby(lobby);
+
+    const session = await runtimeRepository.getSession(startAck.data.session.gameId);
+    expect(session).not.toBeNull();
+    if (!session) {
+      throw new Error('Session should exist.');
+    }
+    session.players[target.playerId].alive = false;
+    await runtimeRepository.saveSession(session);
+
+    const deadPlayerAck = await sendChat(participants[0].socket, {
+      lobbyCode: created.lobby.code,
+      playerId: target.playerId,
+      reconnectToken: target.reconnectToken,
+      text: 'am I dead?',
+    });
+    expect(deadPlayerAck.ok).toBe(false);
+    if (!deadPlayerAck.ok) {
+      expect(deadPlayerAck.error.code).toBe('PLAYER_NOT_ALIVE');
+    }
   });
 
   it('validates submit-intent phase rules, duplicate vote, and SEND_MESSAGE deferral', async () => {

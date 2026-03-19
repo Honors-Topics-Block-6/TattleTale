@@ -45,7 +45,8 @@ export class PrismaGameAuditRepository implements GameAuditRepository {
   async appendMessageAudit(input: MessageAuditEventInput): Promise<void> {
     await this.prisma.messageAuditEvent.create({
       data: {
-        gameId: input.gameId,
+        gameId: input.gameId ?? null,
+        lobbyCode: input.lobbyCode,
         channelId: input.channelId,
         senderPlayerId: input.senderPlayerId,
         rawPayload: input.rawPayload as Prisma.InputJsonValue,

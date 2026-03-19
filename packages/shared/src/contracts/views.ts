@@ -82,6 +82,21 @@ export interface SubmitIntentSuccess {
   session: SessionView;
 }
 
+export interface ChatMessageView {
+  messageId: string;
+  lobbyCode: string;
+  gameId: string | null;
+  senderPlayerId: string;
+  senderDisplayName: string;
+  channelId: 'global';
+  text: string;
+  createdAt: string;
+}
+
+export interface ChatSendSuccess {
+  message: ChatMessageView;
+}
+
 export interface SocketReadyPayload {
   lobbyCode: string | null;
   playerId: string | null;

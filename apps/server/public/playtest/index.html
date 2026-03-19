@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TattleTale Playtest Console</title>
+  <style>
+    :root {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: #111827;
+      background: #f3f4f6;
+    }
+
+    body {
+      margin: 0;
+      padding: 16px;
+      background: linear-gradient(180deg, #f9fafb 0%, #e5e7eb 100%);
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 20px;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: #374151;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 6px 20px rgba(17, 24, 39, 0.08);
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+
+    input,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid #9ca3af;
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+      background: #fff;
+    }
+
+    button {
+      border: 1px solid #1d4ed8;
+      border-radius: 6px;
+      padding: 8px 12px;
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: #374151;
+      background: #4b5563;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .muted {
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    #messages,
+    #logs {
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #f9fafb;
+      padding: 8px;
+      max-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    #state {
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #f9fafb;
+      padding: 8px;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      min-height: 96px;
+    }
+  </style>
+</head>
+<body>
+  <h1>TattleTale Playtest Console</h1>
+  <p>Create/join a lobby and exchange global chat messages over Socket.IO.</p>
+
+  <div class="grid">
+    <section class="card">
+      <div class="row">
+        <button id="connectButton">Connect</button>
+        <button id="disconnectButton" class="secondary" disabled>Disconnect</button>
+      </div>
+      <div class="muted" id="connectionState">Disconnected</div>
+
+      <hr />
+
+      <label for="displayName">Display Name</label>
+      <input id="displayName" value="Playtester" maxlength="24" />
+
+      <label for="lobbyCode">Lobby Code</label>
+      <input id="lobbyCode" placeholder="ABC123" />
+
+      <div class="row">
+        <button id="createLobbyButton" disabled>Create Lobby</button>
+        <button id="joinLobbyButton" disabled>Join Lobby</button>
+        <button id="reconnectButton" disabled>Reconnect</button>
+      </div>
+
+      <div class="row">
+        <button id="startGameButton" disabled>Start Game</button>
+      </div>
+
+      <label for="chatText">Chat Message</label>
+      <textarea id="chatText" rows="3" maxlength="500" placeholder="Type a message..."></textarea>
+      <div class="row">
+        <button id="sendChatButton" disabled>Send Chat</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Identity/Session</h3>
+      <div id="state"></div>
+      <h3>Chat Feed</h3>
+      <div id="messages"></div>
+    </section>
+
+    <section class="card">
+      <h3>Logs</h3>
+      <div id="logs"></div>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const SOCKET_NAMESPACE = '/session';
+    const SOCKET_EVENTS = {
+      client: {
+        createLobby: 'lobby:create',
+        joinLobby: 'lobby:join',
+        reconnect: 'lobby:reconnect',
+        startGame: 'game:start',
+        chatSend: 'chat:send',
+      },
+      server: {
+        ready: 'system:ready',
+        lobbyState: 'lobby:state',
+        sessionState: 'session:state',
+        commandError: 'command:error',
+        chatMessage: 'chat:message',
+      },
+    };
+
+    const state = {
+      socket: null,
+      lobbyCode: null,
+      playerId: null,
+      reconnectToken: null,
+      sessionId: null,
+      displayName: '',
+      lobby: null,
+      session: null,
+    };
+
+    const el = {
+      connectButton: document.getElementById('connectButton'),
+      disconnectButton: document.getElementById('disconnectButton'),
+      createLobbyButton: document.getElementById('createLobbyButton'),
+      joinLobbyButton: document.getElementById('joinLobbyButton'),
+      reconnectButton: document.getElementById('reconnectButton'),
+      startGameButton: document.getElementById('startGameButton'),
+      sendChatButton: document.getElementById('sendChatButton'),
+      displayName: document.getElementById('displayName'),
+      lobbyCode: document.getElementById('lobbyCode'),
+      chatText: document.getElementById('chatText'),
+      connectionState: document.getElementById('connectionState'),
+      state: document.getElementById('state'),
+      messages: document.getElementById('messages'),
+      logs: document.getElementById('logs'),
+    };
+
+    function log(message) {
+      const timestamp = new Date().toISOString();
+      el.logs.textContent = `[${timestamp}] ${message}\n` + el.logs.textContent;
+    }
+
+    function renderState() {
+      el.state.textContent = JSON.stringify(
+        {
+          lobbyCode: state.lobbyCode,
+          playerId: state.playerId,
+          reconnectToken: state.reconnectToken,
+          sessionId: state.sessionId,
+          lobby: state.lobby
+            ? {
+                status: state.lobby.status,
+                players: state.lobby.players.length,
+              }
+            : null,
+          session: state.session
+            ? {
+                gameId: state.session.gameId,
+                status: state.session.status,
+                phase: state.session.phase,
+                cycle: state.session.cycle,
+              }
+            : null,
+        },
+        null,
+        2,
+      );
+    }
+
+    function renderConnectionState() {
+      const connected = Boolean(state.socket && state.socket.connected);
+      el.connectionState.textContent = connected
+        ? `Connected (${state.socket.id})`
+        : 'Disconnected';
+
+      el.connectButton.disabled = connected;
+      el.disconnectButton.disabled = !connected;
+      el.createLobbyButton.disabled = !connected;
+      el.joinLobbyButton.disabled = !connected;
+      el.reconnectButton.disabled = !connected || !(state.lobbyCode && state.playerId && state.reconnectToken);
+      el.startGameButton.disabled = !connected || !(state.lobbyCode && state.playerId && state.reconnectToken);
+      el.sendChatButton.disabled = !connected || !(state.lobbyCode && state.playerId && state.reconnectToken);
+    }
+
+    async function emitAck(eventName, payload) {
+      return new Promise((resolve, reject) => {
+        if (!state.socket || !state.socket.connected) {
+          reject(new Error('Socket is not connected.'));
+          return;
+        }
+
+        const timeout = setTimeout(() => {
+          reject(new Error(`Ack timeout for ${eventName}`));
+        }, 5000);
+
+        state.socket.emit(eventName, payload, (ack) => {
+          clearTimeout(timeout);
+          resolve(ack);
+        });
+      });
+    }
+
+    function appendChatMessage(message) {
+      const line = `[${message.createdAt}] ${message.senderDisplayName}: ${message.text}`;
+      el.messages.textContent = line + '\n' + el.messages.textContent;
+    }
+
+    function attachSocketListeners(socket) {
+      socket.on('connect', () => {
+        log('Socket connected.');
+        renderConnectionState();
+      });
+
+      socket.on('disconnect', (reason) => {
+        log(`Socket disconnected: ${reason}`);
+        renderConnectionState();
+      });
+
+      socket.on(SOCKET_EVENTS.server.ready, (payload) => {
+        state.lobbyCode = payload.lobbyCode;
+        state.playerId = payload.playerId;
+        state.sessionId = payload.sessionId;
+        if (payload.lobbyCode) {
+          el.lobbyCode.value = payload.lobbyCode;
+        }
+        log(`Ready payload: ${JSON.stringify(payload)}`);
+        renderState();
+        renderConnectionState();
+      });
+
+      socket.on(SOCKET_EVENTS.server.lobbyState, (payload) => {
+        state.lobby = payload;
+        state.lobbyCode = payload.code;
+        el.lobbyCode.value = payload.code;
+        log(`Lobby state updated: ${payload.code} (${payload.players.length} players)`);
+        renderState();
+      });
+
+      socket.on(SOCKET_EVENTS.server.sessionState, (payload) => {
+        state.session = payload;
+        state.sessionId = payload.gameId;
+        log(`Session state updated: ${payload.gameId} (${payload.phase})`);
+        renderState();
+      });
+
+      socket.on(SOCKET_EVENTS.server.chatMessage, (payload) => {
+        appendChatMessage(payload);
+      });
+
+      socket.on(SOCKET_EVENTS.server.commandError, (payload) => {
+        log(`Command error: ${payload.code} ${payload.message}`);
+      });
+    }
+
+    el.connectButton.addEventListener('click', () => {
+      if (state.socket && state.socket.connected) {
+        return;
+      }
+
+      state.socket = io(SOCKET_NAMESPACE, {
+        transports: ['websocket'],
+        reconnection: true,
+      });
+
+      attachSocketListeners(state.socket);
+      renderConnectionState();
+    });
+
+    el.disconnectButton.addEventListener('click', () => {
+      if (!state.socket) {
+        return;
+      }
+
+      state.socket.disconnect();
+      renderConnectionState();
+    });
+
+    el.createLobbyButton.addEventListener('click', async () => {
+      try {
+        const displayName = el.displayName.value.trim();
+        const ack = await emitAck(SOCKET_EVENTS.client.createLobby, { displayName });
+        if (!ack.ok) {
+          throw new Error(`${ack.error.code}: ${ack.error.message}`);
+        }
+
+        state.playerId = ack.data.playerId;
+        state.reconnectToken = ack.data.reconnectToken;
+        state.lobbyCode = ack.data.lobby.code;
+        state.displayName = displayName;
+        el.lobbyCode.value = ack.data.lobby.code;
+        log(`Lobby created: ${ack.data.lobby.code}`);
+        renderState();
+        renderConnectionState();
+      } catch (error) {
+        log(`Create lobby failed: ${error.message}`);
+      }
+    });
+
+    el.joinLobbyButton.addEventListener('click', async () => {
+      try {
+        const displayName = el.displayName.value.trim();
+        const lobbyCode = el.lobbyCode.value.trim().toUpperCase();
+        const ack = await emitAck(SOCKET_EVENTS.client.joinLobby, { lobbyCode, displayName });
+        if (!ack.ok) {
+          throw new Error(`${ack.error.code}: ${ack.error.message}`);
+        }
+
+        state.playerId = ack.data.playerId;
+        state.reconnectToken = ack.data.reconnectToken;
+        state.lobbyCode = ack.data.lobby.code;
+        state.displayName = displayName;
+        log(`Joined lobby: ${ack.data.lobby.code}`);
+        renderState();
+        renderConnectionState();
+      } catch (error) {
+        log(`Join lobby failed: ${error.message}`);
+      }
+    });
+
+    el.reconnectButton.addEventListener('click', async () => {
+      try {
+        const lobbyCode = el.lobbyCode.value.trim().toUpperCase();
+        const ack = await emitAck(SOCKET_EVENTS.client.reconnect, {
+          lobbyCode,
+          playerId: state.playerId,
+          reconnectToken: state.reconnectToken,
+        });
+        if (!ack.ok) {
+          throw new Error(`${ack.error.code}: ${ack.error.message}`);
+        }
+
+        state.playerId = ack.data.playerId;
+        state.reconnectToken = ack.data.reconnectToken;
+        state.lobbyCode = ack.data.lobby.code;
+        log(`Reconnected to lobby: ${ack.data.lobby.code}`);
+        renderState();
+        renderConnectionState();
+      } catch (error) {
+        log(`Reconnect failed: ${error.message}`);
+      }
+    });
+
+    el.startGameButton.addEventListener('click', async () => {
+      try {
+        const lobbyCode = el.lobbyCode.value.trim().toUpperCase();
+        const ack = await emitAck(SOCKET_EVENTS.client.startGame, {
+          lobbyCode,
+          actorPlayerId: state.playerId,
+          reconnectToken: state.reconnectToken,
+        });
+        if (!ack.ok) {
+          throw new Error(`${ack.error.code}: ${ack.error.message}`);
+        }
+
+        state.sessionId = ack.data.session.gameId;
+        log(`Game started: ${ack.data.session.gameId}`);
+        renderState();
+      } catch (error) {
+        log(`Start game failed: ${error.message}`);
+      }
+    });
+
+    el.sendChatButton.addEventListener('click', async () => {
+      try {
+        const text = el.chatText.value;
+        const lobbyCode = el.lobbyCode.value.trim().toUpperCase();
+        const ack = await emitAck(SOCKET_EVENTS.client.chatSend, {
+          lobbyCode,
+          playerId: state.playerId,
+          reconnectToken: state.reconnectToken,
+          text,
+        });
+        if (!ack.ok) {
+          throw new Error(`${ack.error.code}: ${ack.error.message}`);
+        }
+
+        el.chatText.value = '';
+      } catch (error) {
+        log(`Send chat failed: ${error.message}`);
+      }
+    });
+
+    renderState();
+    renderConnectionState();
+  </script>
+</body>
+</html>

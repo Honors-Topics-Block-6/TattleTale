@@ -94,6 +94,7 @@ async function main() {
     console.log(`  lobbyCode: ${lobbyCode}`);
     console.log(`  hostPlayerId: ${hostPlayerId}`);
 
+    let receiverSocket = null;
     for (let index = 0; index < 6; index += 1) {
       const label = `player${index + 2}`;
       const playerConn = await connectClient(label);
@@ -108,8 +109,29 @@ async function main() {
         throw new Error(`joinLobby (${label}) failed: ${joinAck.error.code} ${joinAck.error.message}`);
       }
 
+      if (index === 0) {
+        receiverSocket = playerConn.socket;
+      }
+
       console.log(`Joined: ${joinAck.data.playerId} as Player${index + 2}`);
     }
+
+    if (!receiverSocket) {
+      throw new Error('No receiver socket was captured for chat validation.');
+    }
+
+    const lobbyChatPromise = onceEvent(receiverSocket, SOCKET_EVENTS.server.chatMessage);
+    const lobbyChatAck = await emitAck(host.socket, SOCKET_EVENTS.client.chatSend, {
+      lobbyCode,
+      playerId: hostPlayerId,
+      reconnectToken: hostReconnectToken,
+      text: 'lobby chat smoke test',
+    });
+    if (!lobbyChatAck.ok) {
+      throw new Error(`chatSend (lobby) failed: ${lobbyChatAck.error.code} ${lobbyChatAck.error.message}`);
+    }
+    const lobbyChatEvent = await lobbyChatPromise;
+    console.log(`Lobby chat delivered: ${lobbyChatEvent.messageId}`);
 
     const startAck = await emitAck(host.socket, SOCKET_EVENTS.client.startGame, {
       lobbyCode,
@@ -125,12 +147,26 @@ async function main() {
     console.log(`  gameId: ${startAck.data.session.gameId}`);
     console.log(`  phase: ${startAck.data.session.phase}`);
     console.log(`  players: ${startAck.data.session.players.length}`);
+
+    const sessionChatPromise = onceEvent(receiverSocket, SOCKET_EVENTS.server.chatMessage);
+    const sessionChatAck = await emitAck(host.socket, SOCKET_EVENTS.client.chatSend, {
+      lobbyCode,
+      playerId: hostPlayerId,
+      reconnectToken: hostReconnectToken,
+      text: 'session chat smoke test',
+    });
+    if (!sessionChatAck.ok) {
+      throw new Error(`chatSend (session) failed: ${sessionChatAck.error.code} ${sessionChatAck.error.message}`);
+    }
+    const sessionChatEvent = await sessionChatPromise;
+    console.log(`Session chat delivered: ${sessionChatEvent.messageId}`);
     console.log('');
     console.log('Use these to verify persistence:');
     console.log(`  Neon games.lobby_code = ${lobbyCode}`);
     console.log(`  Neon games.id = ${startAck.data.session.gameId}`);
     console.log(`  Redis key lobby:${lobbyCode}`);
     console.log(`  Redis key session:${startAck.data.session.gameId}`);
+    console.log(`  Neon message_audit_events.lobby_code = ${lobbyCode}`);
   } finally {
     for (const socket of clients) {
       if (socket.connected) {

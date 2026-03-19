@@ -57,3 +57,10 @@ export interface SubmitIntentCommand {
     clientTimestamp: string;
   };
 }
+
+export interface ChatSendCommand {
+  lobbyCode: string;
+  playerId: string;
+  reconnectToken: string;
+  text: string;
+}

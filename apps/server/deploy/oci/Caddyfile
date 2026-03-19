@@ -1,0 +1,26 @@
+{
+  email ops@example.com
+}
+
+game.example.com {
+  encode zstd gzip
+
+  # Keep request logs for incident debugging.
+  log {
+    output file /var/log/caddy/tattletale-access.log
+    format console
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "same-origin"
+  }
+
+  reverse_proxy 127.0.0.1:3001 {
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
+    header_up Host {host}
+  }
+}

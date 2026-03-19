@@ -7,7 +7,9 @@ import {
   SystemEventType,
   type ClientCommandAcks,
   type ClientCommandPayloads,
+  type ChatMessageView,
   type CommandFailure,
+  type ChatSendSuccess,
   type LobbyCommandSuccess,
   type SubmitIntentSuccess,
   type StartGameSuccess,
@@ -49,10 +51,21 @@ import type {
 const LOBBY_ROOM_PREFIX = 'lobby:';
 const SESSION_ROOM_PREFIX = 'session:';
 const MAX_LOBBY_CODE_ATTEMPTS = 12;
+const GLOBAL_CHAT_CHANNEL_ID = 'global';
+const DEFAULT_CHAT_MAX_LENGTH = 500;
+const DEFAULT_CHAT_RATE_LIMIT_WINDOW_MS = 5000;
+const DEFAULT_CHAT_RATE_LIMIT_MAX_MESSAGES = 8;
+
+interface ChatConfig {
+  maxLength: number;
+  rateLimitWindowMs: number;
+  rateLimitMaxMessages: number;
+}
 
 interface RegisterFoundationNamespaceDependencies {
   runtimeRepository: RuntimeRepository;
   auditRepository: GameAuditRepository;
+  chatConfig?: Partial<ChatConfig>;
 }
 
 function notImplementedResponse(): CommandFailure {
@@ -362,6 +375,29 @@ function resolveIntentPayload(
   );
 }
 
+function parseChatTextPayload(
+  text: unknown,
+  maxLength: number,
+): string {
+  if (typeof text !== 'string') {
+    throw new DomainError('INVALID_CHAT_TEXT', 'Chat text must be a string.');
+  }
+
+  const normalized = text.trim();
+  if (!normalized) {
+    throw new DomainError('INVALID_CHAT_TEXT', 'Chat text cannot be empty.');
+  }
+
+  if (normalized.length > maxLength) {
+    throw new DomainError(
+      'CHAT_TEXT_TOO_LONG',
+      `Chat text must be ${maxLength} characters or fewer.`,
+    );
+  }
+
+  return normalized;
+}
+
 async function persistRuntimeEvents(
   logger: FastifyBaseLogger,
   auditRepository: GameAuditRepository,
@@ -414,6 +450,44 @@ async function persistRuntimeEvents(
   }
 }
 
+async function persistChatMessageAudit(
+  logger: FastifyBaseLogger,
+  auditRepository: GameAuditRepository,
+  message: ChatMessageView,
+): Promise<void> {
+  try {
+    await auditRepository.appendMessageAudit({
+      gameId: message.gameId ?? null,
+      lobbyCode: message.lobbyCode,
+      channelId: message.channelId,
+      senderPlayerId: message.senderPlayerId,
+      rawPayload: {
+        text: message.text,
+      },
+      deliveredPayload: {
+        messageId: message.messageId,
+        lobbyCode: message.lobbyCode,
+        gameId: message.gameId,
+        senderPlayerId: message.senderPlayerId,
+        senderDisplayName: message.senderDisplayName,
+        channelId: message.channelId,
+        text: message.text,
+        createdAt: message.createdAt,
+      },
+    });
+  } catch (error) {
+    logger.error(
+      {
+        err: error,
+        lobbyCode: message.lobbyCode,
+        gameId: message.gameId,
+        senderPlayerId: message.senderPlayerId,
+      },
+      'Failed to persist chat message audit event',
+    );
+  }
+}
+
 export function registerFoundationNamespace(
   io: SocketIOServer,
   logger: FastifyBaseLogger,
@@ -454,6 +528,36 @@ export function registerFoundationNamespace(
   }
 
   const { runtimeRepository, auditRepository } = dependencies;
+  const chatConfig: ChatConfig = {
+    maxLength: dependencies.chatConfig?.maxLength ?? DEFAULT_CHAT_MAX_LENGTH,
+    rateLimitWindowMs:
+      dependencies.chatConfig?.rateLimitWindowMs ?? DEFAULT_CHAT_RATE_LIMIT_WINDOW_MS,
+    rateLimitMaxMessages:
+      dependencies.chatConfig?.rateLimitMaxMessages ?? DEFAULT_CHAT_RATE_LIMIT_MAX_MESSAGES,
+  };
+  const chatRateWindows = new Map<string, { startedAtMs: number; count: number }>();
+
+  function consumeChatQuota(socketId: string, nowMs: number): void {
+    const entry = chatRateWindows.get(socketId);
+
+    if (!entry || nowMs - entry.startedAtMs >= chatConfig.rateLimitWindowMs) {
+      chatRateWindows.set(socketId, {
+        startedAtMs: nowMs,
+        count: 1,
+      });
+      return;
+    }
+
+    if (entry.count >= chatConfig.rateLimitMaxMessages) {
+      throw new DomainError(
+        'CHAT_RATE_LIMITED',
+        'You are sending messages too quickly. Please slow down.',
+        429,
+      );
+    }
+
+    entry.count += 1;
+  }
 
   async function runCommand<E extends keyof ClientCommandAcks>(
     socket: Socket,
@@ -1162,8 +1266,88 @@ export function registerFoundationNamespace(
       },
     );
 
+    socket.on(
+      SOCKET_EVENTS.client.chatSend,
+      async (
+        payload: ClientCommandPayloads[typeof SOCKET_EVENTS.client.chatSend],
+        ack?: (response: ClientCommandAcks[typeof SOCKET_EVENTS.client.chatSend]) => void,
+      ) => {
+        await runCommand(
+          socket,
+          SOCKET_EVENTS.client.chatSend,
+          payload,
+          ack,
+          async (command) => {
+            const lobby = await requireLobby(runtimeRepository, command.lobbyCode);
+            const { player } = requirePlayerInLobby(lobby, command.playerId);
+
+            if (player.reconnectToken !== command.reconnectToken) {
+              throw new DomainError('INVALID_RECONNECT_TOKEN', 'Reconnect token is invalid.', 403);
+            }
+
+            await requireBoundSocket(runtimeRepository, socket, lobby.code, player.playerId);
+
+            if (!player.connected) {
+              throw new DomainError('PLAYER_NOT_CONNECTED', 'Player is not connected.', 403);
+            }
+
+            const text = parseChatTextPayload(command.text, chatConfig.maxLength);
+            consumeChatQuota(socket.id, Date.now());
+
+            let gameId: string | null = null;
+
+            if (lobby.status === LobbyStatus.IN_GAME) {
+              if (!lobby.sessionId) {
+                throw new DomainError('INVALID_LOBBY_STATE', 'Lobby session id is missing.', 409);
+              }
+
+              const session = await requireSession(runtimeRepository, lobby.sessionId);
+              const sessionPlayer = session.players[player.playerId];
+
+              if (!sessionPlayer) {
+                throw new DomainError(
+                  'PLAYER_NOT_FOUND',
+                  'Player is not part of the active session.',
+                  404,
+                );
+              }
+
+              if (!sessionPlayer.alive) {
+                throw new DomainError('PLAYER_NOT_ALIVE', 'Eliminated players cannot chat.', 403);
+              }
+
+              gameId = session.gameId;
+            } else if (lobby.status === LobbyStatus.CLOSED) {
+              throw new DomainError('LOBBY_CLOSED', 'Lobby is closed.', 409);
+            }
+
+            const message: ChatMessageView = {
+              messageId: crypto.randomUUID(),
+              lobbyCode: lobby.code,
+              gameId,
+              senderPlayerId: player.playerId,
+              senderDisplayName: player.displayName,
+              channelId: GLOBAL_CHAT_CHANNEL_ID,
+              text,
+              createdAt: new Date().toISOString(),
+            };
+
+            const recipientRoom = gameId ? sessionRoom(gameId) : lobbyRoom(lobby.code);
+            namespace.to(recipientRoom).emit(SOCKET_EVENTS.server.chatMessage, message);
+            await persistChatMessageAudit(logger, auditRepository, message);
+
+            return commandSuccess<ChatSendSuccess>({
+              message,
+            });
+          },
+        );
+      },
+    );
+
     socket.on('disconnect', async () => {
       try {
+        chatRateWindows.delete(socket.id);
+
         const binding = await runtimeRepository.clearSocket(socket.id);
 
         if (!binding) {

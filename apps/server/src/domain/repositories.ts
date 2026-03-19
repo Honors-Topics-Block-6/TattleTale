@@ -44,7 +44,8 @@ export interface SessionAuditEventInput {
 }
 
 export interface MessageAuditEventInput {
-  gameId: string;
+  gameId?: string | null;
+  lobbyCode: string;
   channelId: string;
   senderPlayerId: string;
   rawPayload: Record<string, unknown>;

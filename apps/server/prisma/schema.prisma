@@ -53,14 +53,16 @@ model SessionAuditEvent {
 
 model MessageAuditEvent {
   id               String   @id @default(cuid())
-  gameId           String   @map("game_id")
+  gameId           String?  @map("game_id")
+  lobbyCode        String   @map("lobby_code")
   channelId        String   @map("channel_id")
   senderPlayerId   String   @map("sender_player_id")
   rawPayload       Json     @map("raw_payload")
   deliveredPayload Json?    @map("delivered_payload")
   createdAt        DateTime @default(now()) @map("created_at")
-  game             Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game             Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   @@index([gameId, createdAt])
+  @@index([lobbyCode, createdAt])
   @@map("message_audit_events")
 }

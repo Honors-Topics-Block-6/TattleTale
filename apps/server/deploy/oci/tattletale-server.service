@@ -1,0 +1,24 @@
+[Unit]
+Description=TattleTale Backend Server
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tattletale
+Group=tattletale
+WorkingDirectory=/opt/tattletale
+EnvironmentFile=/opt/tattletale/apps/server/.env.production
+ExecStart=/usr/bin/npm run start -w @tattletale/server
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tattletale
+
+[Install]
+WantedBy=multi-user.target
