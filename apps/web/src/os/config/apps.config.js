@@ -9,6 +9,8 @@ import GameStore from '../../apps/GameStore';
 import TypingChallenge from '../../apps/TypingChallenge';
 import SystemDialog from '../../apps/SystemDialog';
 import AngryBirds from '../../apps/AngryBirds';
+import SnakeGame from '../../apps/SnakeGame';
+import SnakeChallenge from '../../apps/SnakeChallenge';
 
 // Registry of all available apps
 const appRegistry = {
@@ -20,6 +22,8 @@ const appRegistry = {
   [TypingChallenge.id]: TypingChallenge,
   [SystemDialog.id]: SystemDialog,
   [AngryBirds.id]: AngryBirds,
+  [SnakeGame.id]: SnakeGame,
+  [SnakeChallenge.id]: SnakeChallenge,
 };
 
 // Default folder icon

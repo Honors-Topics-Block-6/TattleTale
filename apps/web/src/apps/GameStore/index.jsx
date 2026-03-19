@@ -2,35 +2,24 @@ import { useMemo, useState } from 'react';
 import useWindowStore from '../../os/store/windowStore';
 import useInstallStore from '../../os/store/installStore';
 import { sfxClick } from '../../os/utils/sfx';
-import TypingGame from '../TypingGame';
-import TypingChallenge from '../TypingChallenge';
-
-const STORE_ITEMS = [
-  {
-    id: 'typing-game',
-    name: 'Typing Game',
-    description: 'Test your typing speed and accuracy.',
-    app: TypingGame,
-    challengeApp: TypingChallenge,
-  },
-];
+import gameRegistry from '../../os/config/games.config';
 
 function GameStoreComponent() {
   const createWindow = useWindowStore((state) => state.createWindow);
   const installedAppIds = useInstallStore((state) => state.installedAppIds);
   const isInstalled = useMemo(() => new Set(installedAppIds), [installedAppIds]);
-  const [selectedId, setSelectedId] = useState(STORE_ITEMS[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState(gameRegistry[0]?.id ?? null);
 
-  const selected = STORE_ITEMS.find((i) => i.id === selectedId) ?? STORE_ITEMS[0];
+  const selected = gameRegistry.find((i) => i.id === selectedId) ?? gameRegistry[0];
 
   const handleBuy = (item) => {
     sfxClick();
-    if (item.challengeApp) createWindow(item.challengeApp.id, item.challengeApp);
+    if (item.challengeFunction) item.challengeFunction(createWindow);
   };
 
   const handlePlay = (item) => {
     sfxClick();
-    if (item.app) createWindow(item.app.id, item.app);
+    if (item.launchFunction) item.launchFunction(createWindow);
   };
 
   return (
@@ -55,7 +44,7 @@ function GameStoreComponent() {
       >
         <div style={{ marginBottom: 6, fontWeight: 'bold' }}>Available Games</div>
 
-        {STORE_ITEMS.map((item) => {
+        {gameRegistry.map((item) => {
           const active = item.id === selectedId;
           const installed = isInstalled.has(item.app?.id);
           const icon = item.app?.icon;
@@ -132,9 +121,11 @@ function GameStoreComponent() {
             </button>
           ) : (
             <>
-              <button type="button" onClick={() => handlePlay(selected)} style={btnStyle}>
-                Play
-              </button>
+              {selected?.allowPlayFromStore !== false ? (
+                <button type="button" onClick={() => handlePlay(selected)} style={btnStyle}>
+                  Play
+                </button>
+              ) : null}
               <button type="button" disabled style={{ ...btnStyle, opacity: 0.7, cursor: 'default' }}>
                 Installed
               </button>
