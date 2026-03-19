@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 /**
- * Simple XP-style modal for side tasks (typing captcha, etc).
+ * XP-style modal for side tasks (typing captcha, attention checks, etc).
  * Renders as an overlay on top of the OS.
  */
 export default function SideTaskModal({ task, onSubmit, onDismiss }) {
@@ -10,21 +10,27 @@ export default function SideTaskModal({ task, onSubmit, onDismiss }) {
 
   if (!task) return null;
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const result = onSubmit?.(value);
-    if (result === 'SUCCESS') {
-      setStatus('SUCCESS');
-    } else {
-      setStatus('FAIL');
-    }
-  };
+  const isResolved = status === 'SUCCESS' || status === 'FAIL';
 
   const handleClose = () => {
     onDismiss?.();
   };
 
-  const isResolved = status === 'SUCCESS' || status === 'FAIL';
+  const handleTypingSubmit = (e) => {
+    e.preventDefault();
+    if (isResolved) return;
+    const result = onSubmit?.(value);
+    setStatus(result === 'SUCCESS' ? 'SUCCESS' : 'FAIL');
+  };
+
+  const handleAttentionChoice = (index) => {
+    if (isResolved) return;
+    const result = onSubmit?.(index);
+    setStatus(result === 'SUCCESS' ? 'SUCCESS' : 'FAIL');
+  };
+
+  const isTypingTask = task.type === 'TYPING_SENTENCE';
+  const isAttentionTask = task.type === 'ATTENTION_CHECK';
 
   return (
     <div
@@ -83,91 +89,176 @@ export default function SideTaskModal({ task, onSubmit, onDismiss }) {
         <div style={{ padding: 12 }}>
           <p style={{ marginBottom: 8 }}>
             {task.message ||
-              'Type the sentence below exactly to clear the interference.'}
+              (isTypingTask
+                ? 'Type the sentence below exactly to clear the interference.'
+                : 'Tap the item that does not belong with the others.')}
           </p>
 
-          <div
-            style={{
-              marginBottom: 8,
-              padding: 6,
-              backgroundColor: '#ffffff',
-              border: '1px solid #aca899',
-              fontFamily: 'Tahoma, sans-serif',
-              fontSize: 11,
-            }}
-          >
-            {task.sentence}
-          </div>
-
-          <form onSubmit={handleSubmit}>
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              disabled={isResolved}
-              autoFocus
-              style={{
-                width: '100%',
-                marginBottom: 8,
-                padding: '3px 4px',
-                border: '1px solid #7f9db9',
-                outline: 'none',
-                fontFamily: 'Tahoma, sans-serif',
-                fontSize: 11,
-              }}
-            />
-
-            {status === 'SUCCESS' && (
-              <div style={{ marginBottom: 8, color: '#008000' }}>
-                Signal stabilized. You can close this window.
-              </div>
-            )}
-            {status === 'FAIL' && (
-              <div style={{ marginBottom: 8, color: '#800000' }}>
-                That didn&apos;t match. Check spacing and punctuation.
-              </div>
-            )}
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 8,
-              }}
-            >
-              <button
-                type="submit"
-                disabled={isResolved}
+          {isTypingTask && (
+            <>
+              <div
                 style={{
-                  minWidth: 70,
-                  padding: '2px 10px',
-                  border: '1px solid #7f9db9',
-                  background:
-                    'linear-gradient(to bottom, #ffffff, #d9e4f6)',
-                  cursor: isResolved ? 'default' : 'pointer',
+                  marginBottom: 8,
+                  padding: 6,
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #aca899',
+                  fontFamily: 'Tahoma, sans-serif',
+                  fontSize: 11,
                 }}
               >
-                OK
-              </button>
-              <button
-                type="button"
-                onClick={handleClose}
+                {task.sentence}
+              </div>
+
+              <form onSubmit={handleTypingSubmit}>
+                <input
+                  type="text"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  disabled={isResolved}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    marginBottom: 8,
+                    padding: '3px 4px',
+                    border: '1px solid #7f9db9',
+                    outline: 'none',
+                    fontFamily: 'Tahoma, sans-serif',
+                    fontSize: 11,
+                  }}
+                />
+
+                {status === 'SUCCESS' && (
+                  <div style={{ marginBottom: 8, color: '#008000' }}>
+                    Signal stabilized. You can close this window.
+                  </div>
+                )}
+                {status === 'FAIL' && (
+                  <div style={{ marginBottom: 8, color: '#800000' }}>
+                    That didn&apos;t match. Check spacing and punctuation.
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    type="submit"
+                    disabled={isResolved}
+                    style={{
+                      minWidth: 70,
+                      padding: '2px 10px',
+                      border: '1px solid #7f9db9',
+                      background:
+                        'linear-gradient(to bottom, #ffffff, #d9e4f6)',
+                      cursor: isResolved ? 'default' : 'pointer',
+                    }}
+                  >
+                    OK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    style={{
+                      minWidth: 70,
+                      padding: '2px 10px',
+                      border: '1px solid #7f9db9',
+                      background:
+                        'linear-gradient(to bottom, #ffffff, #d9e4f6)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {isAttentionTask && Array.isArray(task.options) && (
+            <>
+              <div
                 style={{
-                  minWidth: 70,
-                  padding: '2px 10px',
-                  border: '1px solid #7f9db9',
-                  background:
-                    'linear-gradient(to bottom, #ffffff, #d9e4f6)',
-                  cursor: 'pointer',
+                  marginBottom: 8,
+                  padding: 6,
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #aca899',
+                  fontFamily: 'Tahoma, sans-serif',
+                  fontSize: 11,
                 }}
               >
-                Cancel
-              </button>
-            </div>
-          </form>
+                {task.prompt ||
+                  'Choose carefully; only one of these fits the rule.'}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  marginBottom: 8,
+                }}
+              >
+                {task.options.map((option, index) => (
+                  <button
+                    key={option + index}
+                    type="button"
+                    disabled={isResolved}
+                    onClick={() => handleAttentionChoice(index)}
+                    style={{
+                      flex: '1 1 45%',
+                      padding: '4px 6px',
+                      border: '1px solid #7f9db9',
+                      background:
+                        'linear-gradient(to bottom, #ffffff, #d9e4f6)',
+                      cursor: isResolved ? 'default' : 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+
+              {status === 'SUCCESS' && (
+                <div style={{ marginBottom: 8, color: '#008000' }}>
+                  Focus confirmed. You can close this window.
+                </div>
+              )}
+              {status === 'FAIL' && (
+                <div style={{ marginBottom: 8, color: '#800000' }}>
+                  You got distracted. Try to stay sharp.
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  style={{
+                    minWidth: 70,
+                    padding: '2px 10px',
+                    border: '1px solid #7f9db9',
+                    background:
+                      'linear-gradient(to bottom, #ffffff, #d9e4f6)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

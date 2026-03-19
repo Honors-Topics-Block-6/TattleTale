@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -5,6 +6,7 @@ import Taskbar from './components/Taskbar/Taskbar';
 import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
+import useInstallStore from './store/installStore';
 
 import '../themes/xp/index.css';
 
@@ -35,8 +37,14 @@ const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
 
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
+  const syncFromServer = useInstallStore((state) => state.syncFromServer);
 
   const windowList = Object.values(windows);
+
+  useEffect(() => {
+    // Best-effort: if server is up, treat it as source of truth.
+    syncFromServer?.().catch(() => {});
+  }, [syncFromServer]);
 
   return (
     <div className="xp-os">
