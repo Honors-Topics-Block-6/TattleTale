@@ -17,6 +17,7 @@ export function buildSessionFromLobby(
       connected: player.connected,
       roleId: null,
       team: null,
+      sleeping: false,
       permissions: [],
     },
   ]);

@@ -11,6 +11,24 @@ const useWindowStore = create(
     nextZIndex: 100,
 
     createWindow: (appId, appConfig) => {
+      // Avoid duplicate windows for specific singleton apps.
+      if (appId === 'ready-toggle') {
+        const existing = Object.values(get().windows).find((w) => w.appId === appId);
+        if (existing) {
+          const { nextZIndex } = get();
+          // Focus the existing window and return its id.
+          set((state) => {
+            if (state.windows[existing.id]) {
+              state.windows[existing.id].zIndex = nextZIndex;
+              state.windows[existing.id].minimized = false;
+              state.activeWindowId = existing.id;
+              state.nextZIndex = nextZIndex + 1;
+            }
+          });
+          return existing.id;
+        }
+      }
+
       const id = uuidv4();
       const { nextZIndex } = get();
 

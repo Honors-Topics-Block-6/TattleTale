@@ -5,14 +5,18 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import ChatRoom from '../../apps/ChatRoom';
+import Lobby from '../../apps/Lobby';
 import AdminPanel from '../../apps/AdminPanel';
+import ReadyToggle from '../../apps/ReadyToggle';
 
 // Registry of all available apps
 const appRegistry = {
   [EmptyApp.id]: EmptyApp,
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
+  [Lobby.id]: Lobby,
   [ChatRoom.id]: ChatRoom,
+  [ReadyToggle.id]: ReadyToggle,
   [AdminPanel.id]: AdminPanel,
 };
 

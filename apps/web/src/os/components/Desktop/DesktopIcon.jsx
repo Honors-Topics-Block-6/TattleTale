@@ -1,18 +1,93 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { SOCKET_EVENTS } from '@tattletale/shared';
+import { lobbySocketRef } from '../../../lib/lobbySocketRef';
+import { READY_PREFIX, STORAGE_KEY } from '../../../lib/sessionConstants';
 import useWindowStore from '../../store/windowStore';
 import { getAppConfig } from '../../config/apps.config';
 
 export default function DesktopIcon({ appId, name, icon }) {
   const [selected, setSelected] = useState(false);
   const createWindow = useWindowStore((state) => state.createWindow);
+  const focusWindow = useWindowStore((state) => state.focusWindow);
+  const getAllWindows = useWindowStore((state) => state.getAllWindows);
+  const readyClickTimerRef = useRef(null);
+
+  const toggleReady = () => {
+    const identityRaw = localStorage.getItem(STORAGE_KEY);
+    if (!identityRaw) return;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(identityRaw);
+    } catch {
+      return;
+    }
+
+    const lobbyCode = parsed?.sessionId;
+    const username = parsed?.username;
+    if (!lobbyCode || !username) return;
+
+    const usernameKey = String(username).trim().toLowerCase();
+    const readyKey = `${READY_PREFIX}${lobbyCode}:${usernameKey}`;
+    const current = localStorage.getItem(readyKey) === 'true';
+    const next = !current;
+
+    localStorage.setItem(readyKey, next ? 'true' : 'false');
+
+    const playerId = parsed?.playerId;
+    const reconnectToken = parsed?.reconnectToken;
+    const socket = lobbySocketRef.current;
+    if (socket?.connected && playerId && reconnectToken) {
+      socket.emit(SOCKET_EVENTS.client.setLobbyReady, {
+        lobbyCode,
+        playerId,
+        reconnectToken,
+        ready: next,
+      });
+    }
+
+    // Notify the currently open lobby UI (same tab) to sync display.
+    window.dispatchEvent(
+      new CustomEvent('tattletale:ready-changed', {
+        detail: { lobbyCode, usernameKey, value: next },
+      }),
+    );
+  };
 
   const handleClick = (e) => {
     e.stopPropagation();
+
+    if (appId === 'ready-toggle') {
+      // If the user double-clicks, we don't want to toggle twice
+      // (once per click). Delay the toggle briefly and cancel on double-click.
+      if (readyClickTimerRef.current) clearTimeout(readyClickTimerRef.current);
+      readyClickTimerRef.current = setTimeout(() => {
+        readyClickTimerRef.current = null;
+        toggleReady();
+      }, 450);
+      setSelected(true);
+      return;
+    }
+
     setSelected(true);
   };
 
   const handleDoubleClick = (e) => {
     e.stopPropagation();
+
+    if (appId === 'ready-toggle') {
+      if (readyClickTimerRef.current) {
+        clearTimeout(readyClickTimerRef.current);
+        readyClickTimerRef.current = null;
+      }
+
+      // Prevent opening multiple Ready Toggle windows.
+      const existing = getAllWindows().find((w) => w.appId === appId);
+      if (existing) {
+        focusWindow(existing.id);
+        return;
+      }
+    }
+
     const appConfig = getAppConfig(appId);
     if (appConfig) {
       createWindow(appId, appConfig);

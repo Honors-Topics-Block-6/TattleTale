@@ -12,6 +12,8 @@ export interface PlayerState {
   connected: boolean;
   roleId: string | null;
   team: string | null;
+  /** During night, non-hackers are asleep (no night actions / coordination). */
+  sleeping: boolean;
   permissions: string[];
 }
 

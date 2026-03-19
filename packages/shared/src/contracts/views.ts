@@ -38,6 +38,13 @@ export interface SessionPlayerView {
   connected: boolean;
 }
 
+/** Per-viewer snapshot (not shared with other clients). */
+export interface SessionSelfView {
+  playerId: string;
+  sleeping: boolean;
+  team: 'HACKER' | 'FRIEND' | null;
+}
+
 export interface ChannelView {
   id: string;
   type: ChannelType;
@@ -61,6 +68,8 @@ export interface SessionView {
   channels: ChannelView[];
   pendingIntentTypes: IntentType[];
   systemEvents: SystemEventView[];
+  /** Present when this payload is targeted to a connected player socket. */
+  self?: SessionSelfView | null;
 }
 
 export interface LobbyCommandSuccess {

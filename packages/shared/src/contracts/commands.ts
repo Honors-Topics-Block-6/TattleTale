@@ -34,3 +34,10 @@ export interface StartGameCommand {
   actorPlayerId: string;
   reconnectToken: string;
 }
+
+export interface SetLobbyReadyCommand {
+  lobbyCode: string;
+  playerId: string;
+  reconnectToken: string;
+  ready: boolean;
+}
