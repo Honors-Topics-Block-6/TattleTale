@@ -8,6 +8,7 @@ import type { AppConfig } from './config/env.js';
 import { PrismaGameAuditRepository } from './infra/persistence/prisma-game-audit-repository.js';
 import { RedisRuntimeRepository } from './infra/persistence/redis-runtime-repository.js';
 import { registerOperationalRoutes, type HealthChecker } from './transport/http/register-operational-routes.js';
+import { registerStoreRoutes } from './transport/http/register-store-routes.js';
 import { registerFoundationNamespace } from './transport/socket/register-foundation-namespace.js';
 
 export interface AppDependencies {
@@ -37,6 +38,7 @@ export async function createApp(
   });
 
   await registerOperationalRoutes(fastify, dependencies.healthChecker);
+  await registerStoreRoutes(fastify, dependencies.redis);
 
   const io = new SocketIOServer(fastify.server, {
     cors: {
