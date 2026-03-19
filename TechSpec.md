@@ -26,7 +26,7 @@
 ### Client
 
 - TypeScript
-- React (Next.js)
+- React (Vite)
 - Zustand (local state)
 - Tailwind CSS (CSS but with some nice things)
 - WebSocket transport (For all the real-time device-to-device communication)
@@ -42,7 +42,47 @@
 ### Persistence
 
 - PostgreSQL  
-    Prisma ORM
+    - Prisma ORM
+    - Neon
+
+## 2.1 Hosting & Deployment (v1)
+
+### Goals
+
+- **Production-like behavior on a $0 budget**, compatible with long-lived WebSocket sessions.
+- **Single origin** to minimize CORS complexity: one domain serves the web client, API, and Socket.IO transport.
+
+### Provider
+
+- **Oracle Cloud Infrastructure (OCI) Always Free** provides the compute host (a VM) for the game server and Redis.
+  - Rationale: most “free tier” PaaS hosts suspend/sleep instances, which breaks or degrades real-time Socket.IO sessions.
+
+### Topology (Single-Origin)
+
+- **One public domain** terminates TLS and forwards to the Node server.
+- **Node (Fastify) serves:**
+  - Static web client build (SPA assets)
+  - Operational endpoints (`/health`, `/ready`)
+  - Socket.IO transport (WebSocket)
+
+### Persistence + Cache
+
+- **PostgreSQL**: Neon (managed). Configure via `DATABASE_URL`.
+- **Redis**: runs on the OCI VM (local/private network). Configure via `REDIS_URL`.
+
+### Environment Variables (Minimum)
+
+- `NODE_ENV` = `production`
+- `HOST` = `0.0.0.0`
+- `PORT` = provider-assigned port (or `3001` behind a reverse proxy)
+- `WEB_ORIGIN` = the production site origin (same domain in single-origin topology)
+- `DATABASE_URL` = Neon connection string
+- `REDIS_URL` = Redis connection string (usually local to VM)
+
+### Operational Notes (Free-Tier Reality)
+
+- “Always Free” is not the same as a paid SLA: compute capacity and instance lifecycle policies can affect uptime.
+- This hosting plan is for **v1 launch/testing**; if uptime guarantees become required, move to paid compute or managed Redis.
 
 ## 3\. Authoritative Game Model
 
