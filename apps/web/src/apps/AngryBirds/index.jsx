@@ -202,7 +202,7 @@ function drawStarShape(ctx, cx, cy, spikes, outerR, innerR) {
   ctx.closePath();
 }
 
-function AngryBirdsComponent({ windowId }) {
+function AngryBirdsComponent({ windowId, onLevelComplete }) {
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
   const animRef = useRef(null);
@@ -602,6 +602,7 @@ function AngryBirdsComponent({ windowId }) {
               setPhase('level-complete');
               setScore(g.score);
               spawnConfetti(g);
+              if (onLevelComplete) onLevelComplete(g.levelIdx, g.score);
               if (g.levelIdx + 1 >= g.totalLevels) {
                 setMessage('You Win! All levels complete!');
               } else {
@@ -1307,12 +1308,13 @@ const AngryBirds = {
       },
     ],
   },
-  desktopIcon: { show: true },
+  desktopIcon: { show: false },
   startMenu: {
-    show: true,
+    show: false,
     section: 'programs',
     description: 'Launch birds at pigs!',
   },
 };
 
 export default AngryBirds;
+export { AngryBirdsComponent };

@@ -4,6 +4,8 @@ import useInstallStore from '../../os/store/installStore';
 import { sfxClick } from '../../os/utils/sfx';
 import TypingGame from '../TypingGame';
 import TypingChallenge from '../TypingChallenge';
+import AngryBirds from '../AngryBirds';
+import AngryBirdsChallenge from '../AngryBirdsChallenge';
 
 const STORE_ITEMS = [
   {
@@ -12,6 +14,13 @@ const STORE_ITEMS = [
     description: 'Test your typing speed and accuracy.',
     app: TypingGame,
     challengeApp: TypingChallenge,
+  },
+  {
+    id: 'angry-birds',
+    name: 'Angry Birds',
+    description: 'Launch birds at pigs! Complete Level 1 to unlock.',
+    app: AngryBirds,
+    challengeApp: AngryBirdsChallenge,
   },
 ];
 
