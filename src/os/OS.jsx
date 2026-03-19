@@ -171,16 +171,7 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     setSideTask(null);
   };
 
-  const activeSideTask = useMemo(() => {
-    if (!sideTask) return null;
-    if (
-      sideTask.type === 'TYPING_SENTENCE' ||
-      sideTask.type === 'ATTENTION_CHECK'
-    ) {
-      return sideTask;
-    }
-    return null;
-  }, [sideTask]);
+  const activeSideTask = useMemo(() => sideTask, [sideTask]);
 
   return (
     <div className="xp-os">
@@ -213,3 +204,4 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     </div>
   );
 }
+

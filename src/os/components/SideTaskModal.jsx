@@ -262,3 +262,4 @@ export default function SideTaskModal({ task, onSubmit, onDismiss }) {
     </div>
   );
 }
+
