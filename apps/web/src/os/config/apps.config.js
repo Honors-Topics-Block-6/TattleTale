@@ -5,11 +5,7 @@ import EmptyApp from '../../apps/EmptyApp';
 import Notepad from '../../apps/Notepad';
 import Calculator from '../../apps/Calculator';
 import TypingGame from '../../apps/TypingGame';
-import GameStore from '../../apps/GameStore';
-import TypingChallenge from '../../apps/TypingChallenge';
-import SystemDialog from '../../apps/SystemDialog';
-import AngryBirds from '../../apps/AngryBirds';
-import AngryBirdsChallenge from '../../apps/AngryBirdsChallenge';
+import Milestone2048 from '../../apps/Milestone2048';
 
 // Registry of all available apps
 const appRegistry = {
@@ -17,15 +13,13 @@ const appRegistry = {
   [Notepad.id]: Notepad,
   [Calculator.id]: Calculator,
   [TypingGame.id]: TypingGame,
-  [GameStore.id]: GameStore,
-  [TypingChallenge.id]: TypingChallenge,
-  [SystemDialog.id]: SystemDialog,
-  [AngryBirds.id]: AngryBirds,
-  [AngryBirdsChallenge.id]: AngryBirdsChallenge,
+  [Milestone2048.id]: Milestone2048,
 };
 
 // Default folder icon
-const folderIcon = 'data:image/svg+xml,' + encodeURIComponent(`
+const folderIcon =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <path d="M2 8 L2 26 L30 26 L30 10 L14 10 L12 8 Z" fill="#f7d774" stroke="#c4a000" stroke-width="1"/>
     <path d="M2 10 L30 10 L30 26 L2 26 Z" fill="#fce94f"/>
@@ -33,7 +27,9 @@ const folderIcon = 'data:image/svg+xml,' + encodeURIComponent(`
 `);
 
 // Default computer icon
-const computerIcon = 'data:image/svg+xml,' + encodeURIComponent(`
+const computerIcon =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <rect x="2" y="2" width="28" height="20" rx="2" fill="#d0d0d0" stroke="#888" stroke-width="1"/>
     <rect x="4" y="4" width="24" height="16" fill="#000080"/>
@@ -43,7 +39,9 @@ const computerIcon = 'data:image/svg+xml,' + encodeURIComponent(`
 `);
 
 // Default document icon
-const documentIcon = 'data:image/svg+xml,' + encodeURIComponent(`
+const documentIcon =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <path d="M6 2 L6 30 L26 30 L26 10 L18 2 Z" fill="#fff" stroke="#888" stroke-width="1"/>
     <path d="M18 2 L18 10 L26 10 Z" fill="#f0f0f0" stroke="#888" stroke-width="1"/>
