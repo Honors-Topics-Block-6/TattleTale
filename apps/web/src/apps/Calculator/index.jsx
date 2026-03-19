@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import useWindowStore from '../../os/store/windowStore';
 
 // Calculator Component
 function CalculatorComponent({ windowId }) {
@@ -101,6 +102,40 @@ function CalculatorComponent({ windowId }) {
       setWaitingForSecond(false);
     }
   };
+
+  const activeWindowId = useWindowStore((s) => s.activeWindowId);
+
+  useEffect(() => {
+    if (activeWindowId !== windowId) return;
+
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      if (e.key >= '0' && e.key <= '9') {
+        inputDigit(e.key);
+      } else if (e.key === '.') {
+        inputDecimal();
+      } else if (e.key === '+') {
+        performOperation('+');
+      } else if (e.key === '-') {
+        performOperation('-');
+      } else if (e.key === '*') {
+        performOperation('*');
+      } else if (e.key === '/') {
+        e.preventDefault();
+        performOperation('/');
+      } else if (e.key === 'Enter' || e.key === '=') {
+        handleEquals();
+      } else if (e.key === 'Backspace') {
+        handleBackspace();
+      } else if (e.key === 'Escape' || e.key === 'Delete') {
+        clear();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [activeWindowId, windowId, inputDigit, inputDecimal, performOperation, handleEquals, handleBackspace, clear]);
 
   const buttonStyle = {
     width: '40px',
