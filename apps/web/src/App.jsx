@@ -9,7 +9,7 @@ function App() {
     return <Lobby onStart={() => setStarted(true)} />
   }
 
-  return <OS />
+  return <OS onLeave={() => setStarted(false)} />
 }
 
 export default App

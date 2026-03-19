@@ -35,7 +35,7 @@ const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
   </svg>
 `);
 
-export default function OS({ wallpaper = defaultWallpaper }) {
+export default function OS({ wallpaper = defaultWallpaper, onLeave }) {
   const windows = useWindowStore((state) => state.windows);
   const syncFromServer = useInstallStore((state) => state.syncFromServer);
 
@@ -66,6 +66,30 @@ export default function OS({ wallpaper = defaultWallpaper }) {
       <Taskbar />
       <StartMenu />
       <ContextMenu />
+
+      {onLeave && (
+        <button
+          onClick={onLeave}
+          style={{
+            position: 'fixed',
+            top: 8,
+            right: 8,
+            padding: '4px 14px',
+            fontSize: 11,
+            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            fontWeight: 'bold',
+            color: '#fff',
+            background: 'linear-gradient(to bottom, #e53935, #b71c1c)',
+            border: '1px solid #7f1d1d',
+            borderRadius: 3,
+            cursor: 'pointer',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+            zIndex: 99999,
+          }}
+        >
+          Leave Game
+        </button>
+      )}
     </div>
   );
 }
