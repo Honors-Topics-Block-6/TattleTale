@@ -66,6 +66,7 @@ const ATTENTION_TASKS = [
     correctIndex: 2,
   },
 ];
+
 export default function OS({ wallpaper = defaultWallpaper }) {
   const windows = useWindowStore((state) => state.windows);
   const windowList = Object.values(windows);
@@ -178,6 +179,7 @@ export default function OS({ wallpaper = defaultWallpaper }) {
   };
 
   const activeSideTask = useMemo(() => sideTask, [sideTask]);
+
   return (
     <div className="xp-os">
       <Desktop wallpaper={wallpaper} />
@@ -209,4 +211,3 @@ export default function OS({ wallpaper = defaultWallpaper }) {
     </div>
   );
 }
-
