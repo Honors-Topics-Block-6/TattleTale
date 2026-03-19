@@ -11,7 +11,9 @@ import SideTaskModal from './components/SideTaskModal';
 import '../themes/xp/index.css';
 
 // Default XP wallpaper (bliss-like gradient)
-const defaultWallpaper = 'data:image/svg+xml,' + encodeURIComponent(`
+const defaultWallpaper =
+  'data:image/svg+xml,' +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
     <defs>
       <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
