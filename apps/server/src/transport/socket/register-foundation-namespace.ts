@@ -49,6 +49,7 @@ import type {
 const LOBBY_ROOM_PREFIX = 'lobby:';
 const SESSION_ROOM_PREFIX = 'session:';
 const MAX_LOBBY_CODE_ATTEMPTS = 12;
+const DISCONNECT_EXPIRY_SECONDS = 30;
 
 interface RegisterFoundationNamespaceDependencies {
   runtimeRepository: RuntimeRepository;
@@ -1250,16 +1251,6 @@ export function registerFoundationNamespace(
         const now = new Date().toISOString();
         player.connected = false;
 
-        const allDisconnected = lobby.players.every((p) => !p.connected);
-
-        if (allDisconnected && lobby.status === LobbyStatus.WAITING) {
-          if (lobby.isPublic) {
-            await runtimeRepository.removePublicLobby(lobby.code);
-          }
-          await runtimeRepository.deleteLobby(lobby.code);
-          return;
-        }
-
         if (player.isHost) {
           const candidates = lobby.players.filter(
             (candidate) => candidate.playerId !== player.playerId,
@@ -1270,6 +1261,15 @@ export function registerFoundationNamespace(
         touchLobby(lobby, now);
         await runtimeRepository.saveLobby(lobby);
         emitLobbyState(namespace, lobby);
+
+        const allDisconnected = lobby.players.every((p) => !p.connected);
+
+        if (allDisconnected) {
+          if (lobby.isPublic) {
+            await runtimeRepository.removePublicLobby(lobby.code);
+          }
+          await runtimeRepository.expireLobby(lobby.code, DISCONNECT_EXPIRY_SECONDS);
+        }
 
         if (!lobby.sessionId) {
           return;
@@ -1288,14 +1288,12 @@ export function registerFoundationNamespace(
           session.updatedAt = now;
         }
 
-        if (allDisconnected) {
-          await runtimeRepository.deleteSession(session.gameId);
-          await runtimeRepository.deleteLobby(lobby.code);
-          return;
-        }
-
         await runtimeRepository.saveSession(session);
         emitSessionState(namespace, session);
+
+        if (allDisconnected) {
+          await runtimeRepository.expireSession(session.gameId, DISCONNECT_EXPIRY_SECONDS);
+        }
       } catch (error) {
         logger.error({ err: error, socketId: socket.id }, 'Disconnect cleanup failed');
       }

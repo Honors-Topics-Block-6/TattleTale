@@ -123,6 +123,10 @@ class InMemoryRuntimeRepository implements RuntimeRepository {
     this.sessions.delete(gameId);
   }
 
+  async expireLobby(_code: string, _seconds: number): Promise<void> {}
+
+  async expireSession(_gameId: string, _seconds: number): Promise<void> {}
+
   async addPublicLobby(_code: string): Promise<void> {}
 
   async removePublicLobby(_code: string): Promise<void> {}

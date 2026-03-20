@@ -101,6 +101,14 @@ export class RedisRuntimeRepository implements RuntimeRepository {
     await this.redis.del(sessionKey(gameId));
   }
 
+  async expireLobby(code: string, seconds: number): Promise<void> {
+    await this.redis.expire(lobbyKey(code), seconds);
+  }
+
+  async expireSession(gameId: string, seconds: number): Promise<void> {
+    await this.redis.expire(sessionKey(gameId), seconds);
+  }
+
   async addPublicLobby(code: string): Promise<void> {
     await this.redis.sadd(PUBLIC_LOBBY_INDEX_KEY, code);
   }

@@ -26,6 +26,8 @@ export interface RuntimeRepository {
   ): Promise<PresenceBinding | null>;
   deleteLobby(code: string): Promise<void>;
   deleteSession(gameId: string): Promise<void>;
+  expireLobby(code: string, seconds: number): Promise<void>;
+  expireSession(gameId: string, seconds: number): Promise<void>;
   addPublicLobby(code: string): Promise<void>;
   removePublicLobby(code: string): Promise<void>;
   listPublicLobbies(): Promise<LobbyState[]>;
