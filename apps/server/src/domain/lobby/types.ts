@@ -35,4 +35,4 @@ export const DEFAULT_LOBBY_SETTINGS: LobbySettings = {
   maxPlayers: 20,
   dayDurationSeconds: 180,
   nightDurationSeconds: 60,
-};
+}

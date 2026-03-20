@@ -13,6 +13,7 @@ import type {
   LobbyCommandSuccess,
   LobbyView,
   PublicLobbyItemView,
+  RoleAssignmentPayload,
   SessionView,
   SocketReadyPayload,
   SubmitIntentSuccess,
@@ -36,6 +37,7 @@ export const SOCKET_EVENTS = {
     ready: 'system:ready',
     lobbyState: 'lobby:state',
     sessionState: 'session:state',
+    roleAssignment: 'session:role',
     commandError: 'command:error',
   },
 } as const;
@@ -70,5 +72,6 @@ export interface ServerPushPayloads {
   [SOCKET_EVENTS.server.ready]: SocketReadyPayload;
   [SOCKET_EVENTS.server.lobbyState]: LobbyView;
   [SOCKET_EVENTS.server.sessionState]: SessionView;
+  [SOCKET_EVENTS.server.roleAssignment]: RoleAssignmentPayload;
   [SOCKET_EVENTS.server.commandError]: CommandErrorPayload;
 }

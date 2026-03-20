@@ -74,6 +74,11 @@ export interface SessionView {
   systemEvents: SystemEventView[];
 }
 
+export interface RoleAssignmentPayload {
+  playerId: string;
+  team: string;
+}
+
 export interface LobbyCommandSuccess {
   lobby: LobbyView;
   playerId: string;

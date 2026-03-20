@@ -69,6 +69,14 @@ export class RedisRuntimeRepository implements RuntimeRepository {
     return binding;
   }
 
+  async getPlayerPresence(
+    lobbyCode: string,
+    playerId: string,
+  ): Promise<PresenceBinding | null> {
+    const value = await this.redis.get(playerPresenceKey(lobbyCode, playerId));
+    return value ? (JSON.parse(value) as PresenceBinding) : null;
+  }
+
   async clearPlayerPresence(
     lobbyCode: string,
     playerId: string,
@@ -83,6 +91,14 @@ export class RedisRuntimeRepository implements RuntimeRepository {
     await this.redis.del(playerPresenceKey(lobbyCode, playerId));
     await this.redis.del(socketPresenceKey(binding.socketId));
     return binding;
+  }
+
+  async deleteLobby(code: string): Promise<void> {
+    await this.redis.del(lobbyKey(code));
+  }
+
+  async deleteSession(gameId: string): Promise<void> {
+    await this.redis.del(sessionKey(gameId));
   }
 
   async addPublicLobby(code: string): Promise<void> {

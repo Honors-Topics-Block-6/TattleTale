@@ -144,6 +144,7 @@ export default function Lobby({ onStart }) {
 
   const socketRef = useRef(null);
   const codeInputRefs = useRef([]);
+  const myRoleRef = useRef(null);
 
   const clearError = () => setError(null);
 
@@ -184,10 +185,14 @@ export default function Lobby({ onStart }) {
       timeout: 8000,
     });
 
+    s.on('session:role', (data) => {
+      myRoleRef.current = data.team;
+    });
+
     s.on('lobby:state', (lobbyView) => {
       setLobby(lobbyView);
       if (lobbyView.status === 'IN_GAME') {
-        onStart({ socket: s, lobby: lobbyView });
+        onStart({ socket: s, lobby: lobbyView, role: myRoleRef.current });
       }
     });
 

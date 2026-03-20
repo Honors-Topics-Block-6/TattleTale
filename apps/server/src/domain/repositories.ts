@@ -16,10 +16,16 @@ export interface RuntimeRepository {
   bindSocket(binding: PresenceBinding): Promise<void>;
   getPresenceBySocket(socketId: string): Promise<PresenceBinding | null>;
   clearSocket(socketId: string): Promise<PresenceBinding | null>;
+  getPlayerPresence(
+    lobbyCode: string,
+    playerId: string,
+  ): Promise<PresenceBinding | null>;
   clearPlayerPresence(
     lobbyCode: string,
     playerId: string,
   ): Promise<PresenceBinding | null>;
+  deleteLobby(code: string): Promise<void>;
+  deleteSession(gameId: string): Promise<void>;
   addPublicLobby(code: string): Promise<void>;
   removePublicLobby(code: string): Promise<void>;
   listPublicLobbies(): Promise<LobbyState[]>;

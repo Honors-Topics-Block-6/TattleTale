@@ -9,7 +9,7 @@ function App() {
     return <Lobby onStart={(info) => setGameInfo(info)} />
   }
 
-  return <OS gameInfo={gameInfo} />
+  return <OS gameInfo={gameInfo} myRole={gameInfo.role} />
 }
 
 export default App

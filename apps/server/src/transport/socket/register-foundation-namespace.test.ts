@@ -89,6 +89,15 @@ class InMemoryRuntimeRepository implements RuntimeRepository {
     return structuredClone(binding);
   }
 
+  async getPlayerPresence(
+    lobbyCode: string,
+    playerId: string,
+  ): Promise<PresenceBinding | null> {
+    const key = `${lobbyCode}:${playerId}`;
+    const value = this.playerPresence.get(key);
+    return value ? structuredClone(value) : null;
+  }
+
   async clearPlayerPresence(
     lobbyCode: string,
     playerId: string,
@@ -104,6 +113,14 @@ class InMemoryRuntimeRepository implements RuntimeRepository {
     this.socketPresence.delete(binding.socketId);
 
     return structuredClone(binding);
+  }
+
+  async deleteLobby(code: string): Promise<void> {
+    this.lobbies.delete(code);
+  }
+
+  async deleteSession(gameId: string): Promise<void> {
+    this.sessions.delete(gameId);
   }
 
   async addPublicLobby(_code: string): Promise<void> {}

@@ -69,11 +69,134 @@ const ATTENTION_TASKS = [
   },
 ];
 
-export default function OS({ wallpaper = defaultWallpaper }) {
+function RoleReveal({ role, onDismiss }) {
+  const isFriend = role === 'FRIENDS';
+  const label = isFriend ? 'Friend' : 'Hacker';
+  const icon = isFriend ? '🛡️' : '💀';
+  const accent = isFriend ? '#3c9a41' : '#b71c1c';
+  const accentLight = isFriend ? '#e8f5e9' : '#ffebee';
+  const borderColor = isFriend ? '#2e7d32' : '#7f0000';
+  const description = isFriend
+    ? 'Work with your fellow Friends to identify and vote out the Hackers before they take over.'
+    : 'Blend in with the Friends. Sabotage from the shadows and avoid suspicion.';
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 99999,
+      background: 'rgba(0,0,0,0.65)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      animation: 'roleRevealFadeIn 0.3s ease-out',
+    }}>
+      <style>{`
+        @keyframes roleRevealFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes roleRevealSlideUp {
+          from { opacity: 0; transform: translateY(30px) scale(0.95); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
+      <div style={{
+        background: '#ece9d8',
+        border: `3px solid ${accent}`,
+        borderRadius: 8,
+        boxShadow: `0 0 0 1px ${borderColor}, 0 12px 40px rgba(0,0,0,0.5)`,
+        width: 380,
+        overflow: 'hidden',
+        animation: 'roleRevealSlideUp 0.4s ease-out 0.1s both',
+      }}>
+        {/* Title bar */}
+        <div style={{
+          background: `linear-gradient(180deg, ${accent}, ${borderColor})`,
+          padding: '8px 12px',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ fontSize: 14 }}>{icon}</span>
+          <span style={{
+            color: '#fff', fontWeight: 'bold', fontSize: 13,
+            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            textShadow: '1px 1px 2px rgba(0,0,0,0.4)',
+          }}>
+            Role Assignment
+          </span>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '24px 28px', textAlign: 'center' }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: '50%',
+            background: accentLight,
+            border: `3px solid ${accent}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 16px',
+            fontSize: 36,
+          }}>
+            {icon}
+          </div>
+
+          <div style={{
+            fontSize: 12, color: '#666',
+            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            textTransform: 'uppercase', letterSpacing: 1,
+            marginBottom: 4,
+          }}>
+            You are a
+          </div>
+
+          <div style={{
+            fontSize: 32, fontWeight: 'bold',
+            color: accent,
+            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            textShadow: `1px 1px 0 ${accentLight}`,
+            marginBottom: 12,
+          }}>
+            {label}
+          </div>
+
+          <div style={{
+            fontSize: 13, color: '#444',
+            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            lineHeight: 1.5,
+            padding: '10px 14px',
+            background: '#fff',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            marginBottom: 20,
+          }}>
+            {description}
+          </div>
+
+          <button
+            onClick={onDismiss}
+            style={{
+              padding: '8px 32px',
+              fontSize: 13,
+              fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+              fontWeight: 'bold',
+              color: '#000',
+              background: 'linear-gradient(180deg, #fff 0%, #e3dcd0 100%)',
+              border: '1px solid #999',
+              borderRadius: 3,
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+            }}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function OS({ wallpaper = defaultWallpaper, myRole }) {
   const windows = useWindowStore((state) => state.windows);
   const createWindow = useWindowStore((state) => state.createWindow);
 
   const windowList = Object.values(windows);
+
+  const [roleRevealed, setRoleRevealed] = useState(!!myRole);
 
   // Side tasks: typing + attention-check + open-2048
   const [sideTask, setSideTask] = useState(null);
@@ -219,6 +342,13 @@ export default function OS({ wallpaper = defaultWallpaper }) {
           task={activeSideTask}
           onSubmit={handleSideTaskSubmit}
           onDismiss={handleSideTaskDismiss}
+        />
+      )}
+
+      {roleRevealed && myRole && (
+        <RoleReveal
+          role={myRole}
+          onDismiss={() => setRoleRevealed(false)}
         />
       )}
     </div>

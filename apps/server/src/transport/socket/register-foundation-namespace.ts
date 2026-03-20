@@ -751,18 +751,19 @@ export function registerFoundationNamespace(
               socket.leave(lobbyRoom(lobby.code));
 
               if (lobby.players.length === 0) {
-                lobby.status = LobbyStatus.CLOSED;
-                assignHost(lobby, null);
-
                 if (lobby.isPublic) {
                   await runtimeRepository.removePublicLobby(lobby.code);
                 }
-              } else if (removedPlayer.isHost) {
-                assignHost(lobby, selectNextHost(lobby.players));
-              }
 
-              touchLobby(lobby, now);
-              await runtimeRepository.saveLobby(lobby);
+                await runtimeRepository.deleteLobby(lobby.code);
+              } else {
+                if (removedPlayer.isHost) {
+                  assignHost(lobby, selectNextHost(lobby.players));
+                }
+
+                touchLobby(lobby, now);
+                await runtimeRepository.saveLobby(lobby);
+              }
 
               updateSocketReady(socket, {
                 lobbyCode: null,
@@ -1047,6 +1048,22 @@ export function registerFoundationNamespace(
 
             namespace.in(lobbyRoom(lobby.code)).socketsJoin(sessionRoom(session.gameId));
 
+            for (const lobbyPlayer of lobby.players) {
+              const presence = await runtimeRepository.getPlayerPresence(
+                lobby.code,
+                lobbyPlayer.playerId,
+              );
+              if (presence) {
+                const playerSocket = namespace.sockets.get(presence.socketId);
+                if (playerSocket) {
+                  playerSocket.emit(SOCKET_EVENTS.server.roleAssignment, {
+                    playerId: lobbyPlayer.playerId,
+                    team: session.players[lobbyPlayer.playerId]?.team ?? null,
+                  });
+                }
+              }
+            }
+
             emitLobbyState(namespace, lobby);
             emitSessionState(namespace, session);
 
@@ -1232,8 +1249,25 @@ export function registerFoundationNamespace(
 
         const now = new Date().toISOString();
         player.connected = false;
-        touchLobby(lobby, now);
 
+        const allDisconnected = lobby.players.every((p) => !p.connected);
+
+        if (allDisconnected && lobby.status === LobbyStatus.WAITING) {
+          if (lobby.isPublic) {
+            await runtimeRepository.removePublicLobby(lobby.code);
+          }
+          await runtimeRepository.deleteLobby(lobby.code);
+          return;
+        }
+
+        if (player.isHost) {
+          const candidates = lobby.players.filter(
+            (candidate) => candidate.playerId !== player.playerId,
+          );
+          assignHost(lobby, selectNextHost(candidates));
+        }
+
+        touchLobby(lobby, now);
         await runtimeRepository.saveLobby(lobby);
         emitLobbyState(namespace, lobby);
 
@@ -1249,12 +1283,16 @@ export function registerFoundationNamespace(
 
         const sessionPlayer = session.players[player.playerId];
 
-        if (!sessionPlayer) {
-          return;
+        if (sessionPlayer) {
+          sessionPlayer.connected = false;
+          session.updatedAt = now;
         }
 
-        sessionPlayer.connected = false;
-        session.updatedAt = now;
+        if (allDisconnected) {
+          await runtimeRepository.deleteSession(session.gameId);
+          await runtimeRepository.deleteLobby(lobby.code);
+          return;
+        }
 
         await runtimeRepository.saveSession(session);
         emitSessionState(namespace, session);

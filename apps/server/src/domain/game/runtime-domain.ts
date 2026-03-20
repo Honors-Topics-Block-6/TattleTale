@@ -301,15 +301,7 @@ function addSeconds(isoTimestamp: string, seconds: number): string {
 }
 
 function chooseHackerCount(playerCount: number): number {
-  if (playerCount >= 16) {
-    return 4;
-  }
-
-  if (playerCount >= 11) {
-    return 3;
-  }
-
-  return 2;
+  return Math.max(2, Math.floor(playerCount / 3));
 }
 
 function assignTeams(
