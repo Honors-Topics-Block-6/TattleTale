@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "npm run dev:web & npm run dev:server",
     "build": "npm run build:shared && npm run build -w @tattletale/server",
+    "build:all": "npm run build:shared && npm run build:web && npm run build:server",
     "build:shared": "npm run build -w @tattletale/shared",
     "build:server": "npm run build -w @tattletale/server",
     "build:web": "npm run build -w @tattletale/web",
