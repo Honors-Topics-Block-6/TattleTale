@@ -1,0 +1,54 @@
+name: Deploy to Production
+
+# Triggers on every push to main (i.e., every merged PR).
+# Pull requests are NOT deployed — only merged code hits production.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Never cancel a running deploy. If two pushes land close together, the second
+# one queues and runs after the first finishes rather than racing.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  deploy:
+    name: Deploy to OCI VM
+    runs-on: ubuntu-latest
+    # "production" environment adds an optional manual approval gate.
+    # Create it in GitHub: Settings → Environments → New environment → production
+    environment: production
+
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: tattletale
+          key: ${{ secrets.OCI_SSH_KEY }}
+          port: 22
+          # script_stop: true makes the step fail if deploy.sh exits non-zero,
+          # which surfaces the error in the Actions UI instead of silently passing.
+          script_stop: true
+          script: /opt/tattletale/apps/server/deploy/oci/deploy.sh
+
+      # Hit the public HTTPS endpoint from the Actions runner (outside the VM)
+      # to confirm Caddy is proxying correctly and the TLS cert is valid.
+      # This catches networking/firewall/cert issues that the internal health
+      # check inside deploy.sh cannot detect.
+      - name: Public smoke test
+        run: |
+          echo "Checking public /health endpoint..."
+          curl -fsS --retry 3 --retry-delay 5 "https://${{ secrets.OCI_DOMAIN }}/health"
+          echo ""
+          echo "Checking public /ready endpoint..."
+          curl -fsS --retry 3 --retry-delay 5 "https://${{ secrets.OCI_DOMAIN }}/ready"
+          echo ""
+          echo "All smoke tests passed."
