@@ -43,3 +43,7 @@ coverage/
 # Cache
 .cache/
 .eslintcache
+
+# Misc
+.claude
+docs
