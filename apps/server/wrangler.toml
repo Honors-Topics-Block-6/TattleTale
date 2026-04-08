@@ -12,6 +12,7 @@ bindings = [
 binding = "DB"
 database_name = "tattletale"
 database_id = "local"
+migrations_dir = "drizzle/migrations"
 
 [[migrations]]
 tag = "v1"
