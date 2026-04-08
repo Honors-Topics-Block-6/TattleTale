@@ -1,44 +1,23 @@
-import { createApp } from './app.js';
-import { loadConfig } from './config/env.js';
-import { createDependencyHealthChecker } from './infra/persistence/health-check.js';
-import { createPrismaClient } from './infra/persistence/prisma-client.js';
-import { createRedisClient } from './infra/persistence/redis-client.js';
+import { Hono } from 'hono';
 
-async function main(): Promise<void> {
-  const config = loadConfig();
-  const prisma = createPrismaClient();
-  const redis = createRedisClient(config.REDIS_URL);
-
-  await redis.connect();
-
-  const { fastify } = await createApp({
-    config,
-    prisma,
-    redis,
-    healthChecker: createDependencyHealthChecker(prisma, redis),
-  });
-
-  try {
-    await fastify.listen({
-      host: config.HOST,
-      port: config.PORT,
-    });
-  } catch (error) {
-    fastify.log.error({ err: error }, 'Failed to start server');
-    await prisma.$disconnect();
-    redis.disconnect();
-    process.exitCode = 1;
-    return;
-  }
-
-  const shutdown = async () => {
-    await fastify.close();
-    await prisma.$disconnect();
-    redis.disconnect();
-  };
-
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+export interface Env {
+  GAME_ROOM: DurableObjectNamespace;
+  DB: D1Database;
+  WEB_ORIGIN: string;
 }
 
-void main();
+const app = new Hono<{ Bindings: Env }>();
+
+app.get('/health', (c) =>
+  c.json({ ok: true, service: 'tattletale-server', timestamp: new Date().toISOString() }),
+);
+
+export default app;
+
+// Placeholder DO - will be replaced in Task 7
+export class GameRoomDO implements DurableObject {
+  constructor(private state: DurableObjectState, private env: Env) {}
+  async fetch(_request: Request): Promise<Response> {
+    return new Response('not implemented', { status: 501 });
+  }
+}

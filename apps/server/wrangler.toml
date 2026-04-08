@@ -1,0 +1,21 @@
+name = "tattletale-server"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "GAME_ROOM", class_name = "GameRoomDO" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tattletale"
+database_id = "local"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["GameRoomDO"]
+
+[vars]
+WEB_ORIGIN = "http://localhost:5173"
