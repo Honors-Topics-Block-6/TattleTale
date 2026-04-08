@@ -1,25 +1,26 @@
 import type { GameState } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
 
-export interface PresenceBinding {
-  socketId: string;
-  lobbyCode: string;
-  playerId: string;
+export interface RuntimeRepository {
+  getLobby(): Promise<LobbyState | null>;
+  saveLobby(lobby: LobbyState): Promise<void>;
+  getSession(): Promise<GameState | null>;
+  saveSession(session: GameState): Promise<void>;
+  deleteLobby(): Promise<void>;
+  deleteSession(): Promise<void>;
 }
 
-export interface RuntimeRepository {
-  lobbyCodeExists(code: string): Promise<boolean>;
-  getLobby(code: string): Promise<LobbyState | null>;
-  saveLobby(lobby: LobbyState): Promise<void>;
-  getSession(gameId: string): Promise<GameState | null>;
-  saveSession(session: GameState): Promise<void>;
-  bindSocket(binding: PresenceBinding): Promise<void>;
-  getPresenceBySocket(socketId: string): Promise<PresenceBinding | null>;
-  clearSocket(socketId: string): Promise<PresenceBinding | null>;
-  clearPlayerPresence(
-    lobbyCode: string,
-    playerId: string,
-  ): Promise<PresenceBinding | null>;
+export interface PlayerConnectionRecord {
+  reconnectToken: string;
+  tokenIssuedAt: number;
+  lastDisconnectedAt?: number;
+  kickedAt?: number;
+}
+
+export interface PersistedPhaseDeadline {
+  phase: string;
+  cycle: number;
+  deadlineMs: number;
 }
 
 export interface CreateGameRecordInput {
@@ -33,7 +34,7 @@ export interface CreateGameRecordInput {
     alive: boolean;
     isHost: boolean;
     roleId: string | null;
-    team: string | null;
+    team: string;
   }>;
 }
 
