@@ -15,12 +15,7 @@
     "build:web": "npm run build -w @tattletale/web",
     "dev:web": "npm run build:shared && npm run dev -w @tattletale/web",
     "dev:server": "npm run build:shared && npm run dev -w @tattletale/server",
-    "test": "npm run test -w @tattletale/server",
-    "prisma:generate": "npm run prisma:generate -w @tattletale/server",
-    "postinstall": "",
-    "redis:get": "npm run redis:get -w @tattletale/server --",
-    "redis:del": "npm run redis:del -w @tattletale/server --",
-    "redis:del-pattern": "npm run redis:del-pattern -w @tattletale/server --"
+    "test": "npm run test -w @tattletale/server"
   },
   "repository": {
     "type": "git",
