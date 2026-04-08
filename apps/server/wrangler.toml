@@ -11,12 +11,12 @@ bindings = [
 [[d1_databases]]
 binding = "DB"
 database_name = "tattletale"
-database_id = "local"
+database_id = "ab285525-99c1-4024-af2d-92226b2b94e3"
 migrations_dir = "drizzle/migrations"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["GameRoomDO"]
+new_sqlite_classes = ["GameRoomDO"]
 
 [vars]
-WEB_ORIGIN = "http://localhost:5173"
+WEB_ORIGIN = "*"
