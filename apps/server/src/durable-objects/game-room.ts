@@ -18,6 +18,8 @@ import {
   handleSubmitIntent,
   persistRuntimeEvents,
   generateToken,
+  selectNextHost,
+  assignHost,
   type HandlerContext,
   type HandlerResult,
 } from '../transport/ws-message-handler.js';
@@ -204,6 +206,13 @@ export class GameRoomDO implements DurableObject {
       const player = lobby.players.find((p) => p.playerId === playerId);
       if (player) {
         player.connected = false;
+
+        // Reassign host if the disconnecting player was the host
+        if (player.isHost) {
+          const candidates = lobby.players.filter((p) => p.playerId !== playerId);
+          assignHost(lobby, selectNextHost(candidates));
+        }
+
         lobby.updatedAt = new Date().toISOString();
         await this.repo.saveLobby(lobby);
         this.broadcastLobbyState(lobby);
@@ -227,6 +236,16 @@ export class GameRoomDO implements DurableObject {
   // ─── Alarm (Phase Timer) ────────────────────────────────
 
   async alarm(): Promise<void> {
+    // Handle game-end WS close alarm
+    const gameEndPending = await this.repo.getGameEndPending();
+    if (gameEndPending) {
+      await this.repo.saveGameEndPending(false);
+      for (const ws of this.state.getWebSockets()) {
+        try { ws.close(1000, 'Game ended'); } catch { /* already closed */ }
+      }
+      return;
+    }
+
     const deadline = await this.repo.getPhaseDeadline();
     if (!deadline) return;
 
@@ -298,12 +317,9 @@ export class GameRoomDO implements DurableObject {
     const playerIds = lobby.players.map((p) => p.playerId);
     await this.repo.deleteAllPlayerRecords(playerIds);
 
-    // Close all WebSocket connections after a short delay (let final state arrive)
-    setTimeout(() => {
-      for (const ws of this.state.getWebSockets()) {
-        try { ws.close(1000, 'Game ended'); } catch { /* already closed */ }
-      }
-    }, 3000);
+    // Schedule alarm to close WebSocket connections after final state arrives
+    await this.repo.saveGameEndPending(true);
+    await this.state.storage.setAlarm(Date.now() + 3000);
   }
 
   // ─── Private Helpers ────────────────────────────────────

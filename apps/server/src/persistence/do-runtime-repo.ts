@@ -62,4 +62,13 @@ export class DORuntimeRepository implements RuntimeRepository {
   async clearPhaseDeadline(): Promise<void> {
     await this.storage.delete('phaseDeadline');
   }
+
+  // Game End Pending (for post-game WS close alarm)
+  async getGameEndPending(): Promise<boolean> {
+    return (await this.storage.get<boolean>('gameEndPending')) ?? false;
+  }
+
+  async saveGameEndPending(pending: boolean): Promise<void> {
+    await this.storage.put('gameEndPending', pending);
+  }
 }

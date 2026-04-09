@@ -146,7 +146,7 @@ function requirePlayerInLobby(lobby: LobbyState, playerId: string) {
   return { player: lobby.players[playerIndex], playerIndex };
 }
 
-function selectNextHost(candidates: LobbyState['players']): string | null {
+export function selectNextHost(candidates: LobbyState['players']): string | null {
   if (candidates.length === 0) return null;
   return (
     candidates.find((p) => p.connected && p.alive)?.playerId
@@ -156,7 +156,7 @@ function selectNextHost(candidates: LobbyState['players']): string | null {
   );
 }
 
-function assignHost(lobby: LobbyState, nextHostPlayerId: string | null): void {
+export function assignHost(lobby: LobbyState, nextHostPlayerId: string | null): void {
   lobby.hostPlayerId = nextHostPlayerId ?? '';
   for (const player of lobby.players) {
     player.isHost = nextHostPlayerId !== null && player.playerId === nextHostPlayerId;
@@ -265,14 +265,13 @@ export async function handleRejoinLobby(
       return fail('INVALID_RECONNECT_TOKEN', 'Reconnect token is invalid.');
     }
 
-    // Check token expiry
+    // Check token expiry — use token issuance as fallback when lastDisconnectedAt
+    // is missing (e.g., unclean disconnect before webSocketClose fires)
     if (record) {
-      const elapsed = Date.now() - record.tokenIssuedAt;
-      if (record.lastDisconnectedAt) {
-        const disconnectedElapsed = Date.now() - record.lastDisconnectedAt;
-        if (disconnectedElapsed > RECONNECT_EXPIRY_MS) {
-          return fail('RECONNECT_EXPIRED', 'Reconnect window has expired.');
-        }
+      const referenceTime = record.lastDisconnectedAt ?? record.tokenIssuedAt;
+      const elapsed = Date.now() - referenceTime;
+      if (elapsed > RECONNECT_EXPIRY_MS) {
+        return fail('RECONNECT_EXPIRED', 'Reconnect window has expired.');
       }
     }
 
@@ -386,6 +385,10 @@ export async function handleKickPlayer(
     const session = requireSession(await ctx.repo.getSession());
     await reconcileAndPersist(ctx, lobby, session);
 
+    if (session.status !== SessionStatus.ACTIVE) {
+      return fail('GAME_NOT_ACTIVE', 'Cannot kick players after game completion.');
+    }
+
     const eliminationEvents = processElimination(
       session,
       lobby,
@@ -494,7 +497,7 @@ export async function handleStartGame(
           alive: p.alive,
           isHost: p.isHost,
           roleId: null,
-          team: session.players[p.playerId]?.team ?? null,
+          team: session.players[p.playerId]?.team ?? 'UNKNOWN',
         })),
       });
 

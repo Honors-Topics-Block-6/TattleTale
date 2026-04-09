@@ -139,12 +139,12 @@ export class GameSocket {
       this.#ws = null;
       this.#rejectAllPending('Connection lost');
 
-      if (this.#shouldReconnect && event.code !== 4001) {
-        // 4001 = kicked, don't reconnect
+      if (this.#shouldReconnect && event.code !== 4001 && event.code !== 4002) {
+        // 4001 = superseded connection, 4002 = kicked by host
         this.#scheduleReconnect();
       } else {
         this.#setState('disconnected');
-        if (event.code === 4001) {
+        if (event.code === 4002) {
           this.#emit('kicked', { reason: event.reason });
         }
       }
