@@ -5,6 +5,7 @@ import type {
   Phase,
   SessionStatus,
   SystemEventType,
+  Team,
 } from '../enums.js';
 
 export interface LobbySettingsView {
@@ -86,4 +87,19 @@ export interface SocketReadyPayload {
   lobbyCode: string | null;
   playerId: string | null;
   sessionId: string | null;
+}
+
+export interface PlayerSessionView {
+  gameId: string;
+  lobbyCode: string;
+  status: SessionStatus;
+  phase: Phase;
+  cycle: number;
+  currentPhaseEndsAt: string | null;
+  players: SessionPlayerView[];
+  channels: ChannelView[];
+  myPendingIntentTypes: IntentType[];
+  systemEvents: SystemEventView[];
+  myRole: string;
+  myTeam: Team;
 }

@@ -1,10 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
     "outDir": "dist",
+    "rootDir": ".",
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"],
     "lib": ["ES2022"],
-    "types": ["node"]
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "drizzle/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }
