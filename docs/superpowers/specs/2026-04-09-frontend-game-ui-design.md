@@ -42,7 +42,9 @@ interface ChannelMessagePayload {
 
 Why a push event rather than embedding in `PlayerSessionView`: messages are high-frequency and append-only. Embedding them in the state snapshot would balloon payload size on every phase change and reconnect. The push event delivers messages incrementally.
 
-**On reconnect:** The server must replay recent messages (last N per channel, or all messages since game start if the volume is bounded) via a burst of `channel:message` events immediately after the `session:state` push. This ensures the client has full chat history after a reconnect without embedding messages in the session view.
+**Ordering guarantee:** Messages within a single channel must arrive in server-timestamp order. The server is the source of truth for ordering — the client appends messages in the order they arrive and does not re-sort. If the server cannot guarantee arrival order (e.g., due to concurrent WebSocket writes), it must include a monotonic `seq` (sequence number) per channel so the client can insert at the correct position.
+
+**On reconnect:** The server must replay the last 100 messages per channel (or all messages if fewer than 100 exist) via a burst of `channel:message` events immediately after the `session:state` push. Messages must be replayed in timestamp order within each channel. The 100-message cap bounds the replay payload while preserving enough context for a returning player. The client replaces (not merges) the local message array for each channel during reconnect replay — see Section 4.3.
 
 ### 2.2 New Server Push Event: `player:eliminated`
 
@@ -153,7 +155,7 @@ Shared message list + input. Used inside TattleStation (global channel) and DMWi
 - When channel is locked: input disabled, shows lock icon with "Channel locked" text
 - When player is dead: input field not rendered (read-only mode)
 - Props: `channelId` — reads messages from the channels slice
-- **Deduplication:** Before appending a message, check if `message.id` already exists in the channel's message array. Skip if duplicate. This handles reconnect replays and potential double-delivery.
+- **Deduplication & ordering:** Before appending a message, check if `message.id` already exists in the channel's message array. Skip if duplicate. Messages are appended in arrival order — the server guarantees in-order delivery per channel (see Section 2.1). The client does not re-sort.
 
 #### PlayerList
 Sidebar component showing all players and their status.
@@ -174,7 +176,9 @@ Replaces ChatPanel in TattleStation during DAY_VOTE phase.
   2. Click "Confirm Vote" button → locks in the vote, sends `submitIntent` with `IntentType.SUBMIT_VOTE`
   3. Can change pending selection before confirming. Cannot change after confirming.
 - **Tally display:** Bar at the top showing confirmed vote counts per player, sourced from `PlayerSessionView.voteTally`. Only confirmed votes visible.
-- **Invalidation:** If the server pushes a `session:state` update during DAY_VOTE that removes a player from the voteable list (e.g., they disconnected), and the local player's `pendingSelection` points to that player, clear the pending selection. If `confirmedVote` points to a now-invalid player, the UI shows the vote as locked but the server handles the stale vote — the client does not unilaterally revoke a confirmed vote.
+- **Invalidation:**
+  - **Pending selection:** If the server pushes a `session:state` update during DAY_VOTE that removes a player from the voteable list (e.g., they disconnected), and the local player's `pendingSelection` points to that player, clear the pending selection silently.
+  - **Confirmed vote:** If `confirmedVote` points to a player who is no longer voteable (disconnected, or removed from the player list), the client does NOT unilaterally revoke the vote — the server is authoritative on vote validity. However, the UI must clearly communicate the situation: the target player's entry in the VotePanel shows as grayed out with a "(disconnected)" label, and a notice appears above the tally: "Your vote target disconnected. The server will resolve this." This prevents confusion without overriding server authority.
 - **Submit payload:**
   ```typescript
   {
@@ -265,13 +269,14 @@ Single Zustand store (`useGameStore`) using Immer middleware, organized into fiv
   }>,
   unreadCounts: Record<string, number>,   // channelId → unread count
   popHistory: Record<string, true>,       // channelIds that have auto-popped
+  removedChannelIds: string[],            // Channels removed in the last sync, cleared on next sync
 }
 ```
 
 **Actions:**
-- `addMessage(channelId, msg)` — deduplicates by `msg.id`, appends if new, increments unread if window not focused
+- `addMessage(channelId, msg)` — deduplicates by `msg.id`, appends if new, increments unread if window not focused. After appending, if the channel's message array exceeds 200 entries, trim the oldest messages to keep the array at 200. This bounds memory usage for long games. (The 200 cap is client-side only — the server's replay cap of 100 messages per reconnect is a separate concern.)
 - `markRead(channelId)` — resets unread count to 0
-- `resetOnReconnect()` — resets `unreadCounts` to `{}` and `popHistory` to `{}` (called before replaying messages on reconnect, so auto-pop and unread logic runs fresh against the replayed messages)
+- `prepareForReconnect()` — clears the `messages` array for every channel (they will be repopulated by the replay burst), preserves `unreadCounts` and `popHistory` (see Section 5.4 for rationale)
 
 **No `activeChannelId`.** TattleStation always renders the GLOBAL channel. There is no channel switching within TattleStation. DM and role channels live in their own DMWindow instances.
 
@@ -324,7 +329,12 @@ syncSessionState(view: PlayerSessionView) => {
     - Add new channels that don't exist locally
     - Update metadata (locked, members, expiresAt) for existing channels
     - Preserve local messages array (messages come via channel:message events, not here)
-    - Remove channels no longer in view.channels (player lost access)
+    - Remove channels no longer in view.channels (player lost access):
+      → Delete the channel entry from the store
+      → Delete its unreadCounts entry
+      → Delete its popHistory entry
+      → Add the channelId to a `removedChannelIds: string[]` field (ephemeral, cleared on next sync)
+      → Any open DMWindow for that channel reads this field and transitions to a "Channel closed" state (see Section 9.4)
 
   // Vote slice
   set voteTally from view.voteTally
@@ -401,11 +411,12 @@ Full command structure:
 On WebSocket reconnect (handled by existing `game-socket.js`):
 
 1. Server pushes `session:state` with full current `PlayerSessionView`
-2. `syncSessionState()` replaces store contents
-3. `resetOnReconnect()` clears unread counts and pop history
-4. Server replays `channel:message` events for all accessible channels (deduplicated by the client via message ID)
-5. If player is dead, server sends `player:eliminated` with the original `cause` and `cycle` — client compares `cycle` to stored `eliminationCycle` and skips the animation if already seen, going straight to Safe Mode
-6. Open windows remain — they re-render with fresh data
+2. `syncSessionState()` replaces store contents (channels, players, phase, etc.)
+3. `prepareForReconnect()` clears message arrays for all channels (they'll be repopulated by replay). Preserves `unreadCounts` and `popHistory` so the player's window state and unread badges remain stable — a brief disconnect shouldn't reset their mental model of which conversations they've seen.
+4. Server replays `channel:message` events for all accessible channels (last 100 per channel, in timestamp order). The client appends these to the now-empty message arrays. Because `popHistory` is preserved, channels that were already popped once won't auto-pop again — they'll just re-accumulate their unread badge if the window is closed.
+5. After replay, any channel whose replayed message count exceeds its pre-reconnect unread count keeps the pre-reconnect unread count (the player already saw those messages). Any channel with *new* messages beyond what was previously delivered increments the unread count normally.
+6. If player is dead, server sends `player:eliminated` with the original `cause` and `cycle` — client compares `cycle` to stored `eliminationCycle` and skips the animation if already seen, going straight to Safe Mode
+7. Open windows remain — they re-render with fresh data
 
 ---
 
@@ -577,7 +588,7 @@ When a `channel:message` event arrives for a non-GLOBAL channel:
 
 Each channel auto-pops once to get attention, then respects the player's decision to close it.
 
-**On reconnect:** `resetOnReconnect()` clears `popHistory`, so as reconnect message replay arrives, the first message per channel will auto-pop its window again. This is correct behavior — after a disconnect, the player needs their channels re-established.
+**On reconnect:** `popHistory` is preserved across reconnects (see Section 5.4). Channels that already auto-popped once won't force-open again on replay — they'll accumulate unread badges on their existing taskbar entries if the window is closed. This prevents a brief network hiccup from re-spawning every DM window the player had previously arranged or closed.
 
 ### 9.2 Channel Locking
 
@@ -592,6 +603,17 @@ When the server sends a channel with `locked: true` in `PlayerSessionView.channe
 - Closing a DMWindow removes the OS window but does NOT leave the channel. Messages keep accumulating in the store.
 - Re-opening (via taskbar click on blinking icon, or new message triggering auto-pop if not in popHistory) shows full message history.
 - Window IDs are derived from channelId (e.g., `dm-{channelId}`) for consistent tracking.
+
+### 9.4 Channel Removal
+
+When `syncSessionState` removes a channel from the store (because the server no longer includes it in `PlayerSessionView.channels`), any open DMWindow for that channel must handle the disappearance gracefully:
+
+1. The DMWindow subscribes to `useGameStore(s => s.channels[channelId])`. When this becomes `undefined`, the window transitions to a "closed" state.
+2. **Closed state UI:** The ChatPanel is replaced with a centered message: "This channel is no longer available." The input field is removed. Existing messages are gone (the store entry was deleted).
+3. The window remains open but inert — the player can read the notice and close it manually. It does not auto-close (an abruptly vanishing window with no explanation would be confusing).
+4. The window title appends "(closed)" to indicate the state.
+
+This handles cases like: TEMP channels expiring, role channels being revoked, or the player losing access to a channel due to game events.
 
 ---
 
