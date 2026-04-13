@@ -21,6 +21,10 @@ export class GameSocket {
     return this.#state;
   }
 
+  get credentials() {
+    return this.#credentials;
+  }
+
   connect(url) {
     this.#url = url;
     this.#shouldReconnect = true;
