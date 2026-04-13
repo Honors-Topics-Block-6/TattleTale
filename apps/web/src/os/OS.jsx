@@ -7,6 +7,10 @@ import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
 import SideTaskModal from './components/SideTaskModal';
+import useGameStore from '../stores/gameStore';
+import useThemeEffect from '../hooks/useThemeEffect';
+import EliminationSequence from '../components/EliminationSequence/index';
+import WinScreen from '../components/WinScreen/index';
 
 import '../themes/xp/index.css';
 
@@ -69,11 +73,29 @@ const ATTENTION_TASKS = [
   },
 ];
 
-export default function OS({ wallpaper = defaultWallpaper }) {
+export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
   const windows = useWindowStore((state) => state.windows);
   const createWindow = useWindowStore((state) => state.createWindow);
 
   const windowList = Object.values(windows);
+
+  // Game state hooks
+  useThemeEffect();
+  const eliminationCause = useGameStore((s) => s.eliminationCause);
+  const eliminationCycle = useGameStore((s) => s.eliminationCycle);
+  const selfAlive = useGameStore((s) => s.selfAlive);
+  const status = useGameStore((s) => s.status);
+  const [eliminationPlayed, setEliminationPlayed] = useState(null);
+
+  const showElimination =
+    eliminationCause !== null &&
+    !selfAlive &&
+    eliminationCycle !== null &&
+    eliminationPlayed !== eliminationCycle;
+
+  const handleEliminationComplete = () => {
+    setEliminationPlayed(eliminationCycle);
+  };
 
   // Side tasks: typing + attention-check + open-2048
   const [sideTask, setSideTask] = useState(null);
@@ -220,6 +242,17 @@ export default function OS({ wallpaper = defaultWallpaper }) {
           onSubmit={handleSideTaskSubmit}
           onDismiss={handleSideTaskDismiss}
         />
+      )}
+
+      {showElimination && (
+        <EliminationSequence
+          cause={eliminationCause}
+          onComplete={handleEliminationComplete}
+        />
+      )}
+
+      {(status === 'FRIENDS_WIN' || status === 'HACKERS_WIN') && (
+        <WinScreen onReturnToLobby={onReturnToLobby} />
       )}
     </div>
   );
