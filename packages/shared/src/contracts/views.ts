@@ -40,6 +40,11 @@ export interface SessionPlayerView {
   connected: boolean;
 }
 
+export interface PlayerSessionPlayerView extends SessionPlayerView {
+  role?: string;
+  team?: Team;
+}
+
 export interface ChannelView {
   id: string;
   type: ChannelType;
@@ -96,10 +101,12 @@ export interface PlayerSessionView {
   phase: Phase;
   cycle: number;
   currentPhaseEndsAt: string | null;
-  players: SessionPlayerView[];
+  phaseDurationSeconds: number;
+  players: PlayerSessionPlayerView[];
   channels: ChannelView[];
   myPendingIntentTypes: IntentType[];
   systemEvents: SystemEventView[];
   myRole: string;
   myTeam: Team;
+  voteTally: Record<string, number> | null;
 }

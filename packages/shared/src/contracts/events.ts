@@ -16,6 +16,24 @@ import type {
   SubmitIntentSuccess,
   StartGameSuccess,
 } from './views.js';
+import type { Team } from '../enums.js';
+
+export interface ChannelMessagePayload {
+  channelId: string;
+  message: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    content: string;
+    timestamp: string;
+  };
+}
+
+export interface PlayerEliminatedPayload {
+  playerId: string;
+  cause: 'VOTED_OUT' | 'NIGHT_KILL';
+  cycle: number;
+}
 
 export const SOCKET_NAMESPACE = '/session';
 
@@ -34,6 +52,8 @@ export const SOCKET_EVENTS = {
     lobbyState: 'lobby:state',
     sessionState: 'session:state',
     commandError: 'command:error',
+    channelMessage: 'channel:message',
+    playerEliminated: 'player:eliminated',
   },
 } as const;
 
@@ -66,4 +86,6 @@ export interface ServerPushPayloads {
   [SOCKET_EVENTS.server.lobbyState]: LobbyView;
   [SOCKET_EVENTS.server.sessionState]: SessionView;
   [SOCKET_EVENTS.server.commandError]: CommandErrorPayload;
+  [SOCKET_EVENTS.server.channelMessage]: ChannelMessagePayload;
+  [SOCKET_EVENTS.server.playerEliminated]: PlayerEliminatedPayload;
 }
