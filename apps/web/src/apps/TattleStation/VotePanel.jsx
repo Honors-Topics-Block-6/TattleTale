@@ -10,28 +10,26 @@ export default function VotePanel() {
   const voteTally = useGameStore((s) => s.voteTally);
   const selectPlayer = useGameStore((s) => s.selectPlayer);
   const confirmVote = useGameStore((s) => s.confirmVote);
-  const lobbyCode = useGameStore((s) => s.lobbyCode);
-  const gameId = useGameStore((s) => s.gameId);
 
   const voteableEntries = Object.entries(players).filter(
     ([id, p]) => id !== selfId && p.alive
   );
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!pendingSelection || confirmedVote !== null) return;
     confirmVote();
 
-    socket.send('game:submit-intent', {
-      lobbyCode,
-      gameId,
-      playerId: selfId,
-      reconnectToken: socket.credentials?.reconnectToken || '',
-      intent: {
-        type: 'SUBMIT_VOTE',
-        payload: { targetPlayerId: pendingSelection },
-        clientTimestamp: new Date().toISOString(),
-      },
-    });
+    try {
+      await socket.send('submitIntent', {
+        intent: {
+          type: 'SUBMIT_VOTE',
+          payload: { targetPlayerId: pendingSelection },
+          clientTimestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      console.error('Failed to submit vote:', err);
+    }
   };
 
   const confirmedTargetInvalid =

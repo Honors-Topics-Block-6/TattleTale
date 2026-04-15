@@ -38,6 +38,9 @@ const initialState = {
   pendingIntentTypes: [],
   eliminationCause: null,
   eliminationCycle: null,
+
+  // Lobby slice (pre-game waiting room)
+  lobbyView: null,
 };
 
 const useGameStore = create(
@@ -138,6 +141,13 @@ const useGameStore = create(
       set((state) => {
         state.eliminationCause = cause;
         state.eliminationCycle = cycle;
+      }),
+
+    // --- Lobby actions ---
+
+    setLobbyView: (view) =>
+      set((state) => {
+        state.lobbyView = view;
       }),
 
     // --- Root sync action ---

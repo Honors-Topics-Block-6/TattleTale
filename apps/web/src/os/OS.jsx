@@ -79,6 +79,19 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
 
   const windowList = Object.values(windows);
 
+  // Auto-open TattleStation when the OS mounts — it's the main game window
+  // and has no desktop/start-menu entry, so the user can't open it manually.
+  // Guard against StrictMode double-invocation and user re-opens.
+  useEffect(() => {
+    const existing = Object.values(useWindowStore.getState().windows).some(
+      (w) => w.appId === 'tattle-station',
+    );
+    if (existing) return;
+    const appConfig = getAppConfig('tattle-station');
+    if (appConfig) createWindow('tattle-station', appConfig);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Game state hooks
   useThemeEffect();
   const eliminationCause = useGameStore((s) => s.eliminationCause);

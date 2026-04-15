@@ -2,13 +2,33 @@ import { useState, useRef, useEffect } from 'react';
 import useGameStore from '../../stores/gameStore';
 import { useSocket } from '../../lib/SocketContext';
 
+function DayDivider({ cycle }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        margin: '10px 0 6px',
+        color: '#888',
+        fontSize: 10,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+      }}
+    >
+      <div style={{ flex: 1, height: 1, background: '#d4d0c8' }} />
+      <span>— Day {cycle} —</span>
+      <div style={{ flex: 1, height: 1, background: '#d4d0c8' }} />
+    </div>
+  );
+}
+
 export default function ChatPanel({ channelId }) {
   const socket = useSocket();
   const channel = useGameStore((s) => s.channels[channelId]);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const selfId = useGameStore((s) => s.selfId);
-  const lobbyCode = useGameStore((s) => s.lobbyCode);
-  const gameId = useGameStore((s) => s.gameId);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef(null);
 
@@ -20,23 +40,22 @@ export default function ChatPanel({ channelId }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const content = inputValue.trim();
     if (!content || isLocked || !selfAlive) return;
 
-    socket.send('game:submit-intent', {
-      lobbyCode,
-      gameId,
-      playerId: selfId,
-      reconnectToken: socket.credentials?.reconnectToken || '',
-      intent: {
-        type: 'SEND_MESSAGE',
-        payload: { channelId, content },
-        clientTimestamp: new Date().toISOString(),
-      },
-    });
-
-    setInputValue('');
+    try {
+      await socket.send('submitIntent', {
+        intent: {
+          type: 'SEND_MESSAGE',
+          payload: { channelId, content },
+          clientTimestamp: new Date().toISOString(),
+        },
+      });
+      setInputValue('');
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -72,25 +91,34 @@ export default function ChatPanel({ channelId }) {
             No messages yet.
           </div>
         )}
-        {messages.map((msg) => (
-          <div key={msg.id} style={{ marginBottom: 4 }}>
-            <span
-              style={{
-                fontWeight: 'bold',
-                color: msg.senderId === selfId ? '#0054e3' : '#333',
-              }}
-            >
-              {msg.senderName}
-            </span>
-            <span style={{ color: '#999', marginLeft: 6, fontSize: 10 }}>
-              {new Date(msg.timestamp).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-              })}
-            </span>
-            <div style={{ marginLeft: 2 }}>{msg.content}</div>
-          </div>
-        ))}
+        {messages.map((msg, idx) => {
+          const prev = idx > 0 ? messages[idx - 1] : null;
+          const showDivider =
+            typeof msg.cycle === 'number' &&
+            (prev === null || prev.cycle !== msg.cycle);
+          return (
+            <div key={msg.id}>
+              {showDivider && <DayDivider cycle={msg.cycle} />}
+              <div style={{ marginBottom: 4 }}>
+                <span
+                  style={{
+                    fontWeight: 'bold',
+                    color: msg.senderId === selfId ? '#0054e3' : '#333',
+                  }}
+                >
+                  {msg.senderName}
+                </span>
+                <span style={{ color: '#999', marginLeft: 6, fontSize: 10 }}>
+                  {new Date(msg.timestamp).toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </span>
+                <div style={{ marginLeft: 2 }}>{msg.content}</div>
+              </div>
+            </div>
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 

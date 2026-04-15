@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useRef } from 'react';
 import Lobby from './Lobby';
 import OS from './os/OS';
 import useGameStore from './stores/gameStore';
@@ -7,18 +7,15 @@ import usePhaseTimer from './hooks/usePhaseTimer';
 import { GameSocket } from './lib/game-socket';
 import { SocketContext } from './lib/SocketContext';
 
-const SOCKET_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
-
 function App() {
-  const [inGame, setInGame] = useState(false);
   const socketRef = useRef(null);
   const resetGame = useGameStore((s) => s.resetGame);
-  const setSelfId = useGameStore((s) => s.setSelfId);
+  const phase = useGameStore((s) => s.phase);
 
-  // Initialize socket once
+  // Lazy-init the socket. We do NOT call connect() here — Lobby targets the
+  // socket at a lobby-specific wsUrl once the user creates or joins a game.
   if (!socketRef.current) {
     socketRef.current = new GameSocket();
-    socketRef.current.connect(SOCKET_URL);
   }
 
   // Wire socket events to game store
@@ -27,24 +24,20 @@ function App() {
   // Run the phase timer
   usePhaseTimer();
 
-  const handleGameStart = (playerSessionView) => {
-    setSelfId(socketRef.current.credentials?.playerId || '');
-    useGameStore.getState().syncSessionState(playerSessionView);
-    setInGame(true);
-  };
-
   const handleReturnToLobby = () => {
+    socketRef.current?.close();
     resetGame();
-    setInGame(false);
   };
 
-  if (!inGame) {
-    return <Lobby socket={socketRef.current} onGameStart={handleGameStart} />;
-  }
+  const inGame = phase !== null;
 
   return (
     <SocketContext.Provider value={socketRef.current}>
-      <OS onReturnToLobby={handleReturnToLobby} />
+      {inGame ? (
+        <OS onReturnToLobby={handleReturnToLobby} />
+      ) : (
+        <Lobby />
+      )}
     </SocketContext.Provider>
   );
 }

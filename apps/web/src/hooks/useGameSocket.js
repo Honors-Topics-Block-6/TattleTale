@@ -3,6 +3,7 @@ import useGameStore from '../stores/gameStore';
 
 export default function useGameSocket(socket) {
   const syncSessionState = useGameStore((s) => s.syncSessionState);
+  const setLobbyView = useGameStore((s) => s.setLobbyView);
   const addMessage = useGameStore((s) => s.addMessage);
   const incrementUnread = useGameStore((s) => s.incrementUnread);
   const setElimination = useGameStore((s) => s.setElimination);
@@ -17,6 +18,10 @@ export default function useGameSocket(socket) {
 
     const handleSessionState = (payload) => {
       syncSessionState(payload);
+    };
+
+    const handleLobbyState = (payload) => {
+      setLobbyView(payload);
     };
 
     const handleChannelMessage = (payload) => {
@@ -46,9 +51,10 @@ export default function useGameSocket(socket) {
       prepareForReconnect();
     };
 
-    socket.on('session:state', handleSessionState);
-    socket.on('channel:message', handleChannelMessage);
-    socket.on('player:eliminated', handlePlayerEliminated);
+    socket.on('sessionState', handleSessionState);
+    socket.on('lobbyState', handleLobbyState);
+    socket.on('channelMessage', handleChannelMessage);
+    socket.on('playerEliminated', handlePlayerEliminated);
     const unsubState = socket.onStateChange((newState) => {
       if (newState === 'reconnecting') {
         handleReconnect();
@@ -56,12 +62,21 @@ export default function useGameSocket(socket) {
     });
 
     return () => {
-      socket.off('session:state', handleSessionState);
-      socket.off('channel:message', handleChannelMessage);
-      socket.off('player:eliminated', handlePlayerEliminated);
+      socket.off('sessionState', handleSessionState);
+      socket.off('lobbyState', handleLobbyState);
+      socket.off('channelMessage', handleChannelMessage);
+      socket.off('playerEliminated', handlePlayerEliminated);
       unsubState();
     };
-  }, [socket, syncSessionState, addMessage, incrementUnread, setElimination, prepareForReconnect]);
+  }, [
+    socket,
+    syncSessionState,
+    setLobbyView,
+    addMessage,
+    incrementUnread,
+    setElimination,
+    prepareForReconnect,
+  ]);
 }
 
 function findGlobalChannelId(channels) {
