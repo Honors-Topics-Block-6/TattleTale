@@ -49,6 +49,16 @@ export type RuntimeEvent =
   | RuntimePlayerEliminatedEvent
   | RuntimeGameEndedEvent;
 
+type EliminationResolution = {
+  kind: 'ELIMINATE';
+  targetPlayerId: string;
+  targetDisplayName: string;
+  reason: 'DAY_VOTE' | 'NIGHT_KILL';
+} | {
+  kind: 'NONE';
+  reason: 'DAY_VOTE' | 'NIGHT_KILL';
+};
+
 export interface IntentAppendInput {
   playerId: string;
   type: IntentType.SUBMIT_VOTE | IntentType.SUBMIT_NIGHT_ACTION;
@@ -182,6 +192,62 @@ export function appendIntent(
   };
 }
 
+function resolveDayVote(session: GameState): EliminationResolution {
+  const targetId = resolveDayVoteEliminationTarget(session);
+  if (!targetId) return { kind: 'NONE', reason: 'DAY_VOTE' };
+  const name = session.players[targetId]?.displayName ?? '';
+  return { kind: 'ELIMINATE', targetPlayerId: targetId, targetDisplayName: name, reason: 'DAY_VOTE' };
+}
+
+function resolveNightKill(session: GameState): EliminationResolution {
+  const targetId = resolveHackerKillTarget(session);
+  if (!targetId) return { kind: 'NONE', reason: 'NIGHT_KILL' };
+  const name = session.players[targetId]?.displayName ?? '';
+  return { kind: 'ELIMINATE', targetPlayerId: targetId, targetDisplayName: name, reason: 'NIGHT_KILL' };
+}
+
+function applyEliminationOutcome(
+  session: GameState,
+  lobby: LobbyState,
+  resolution: EliminationResolution,
+  transitionAt: string,
+): RuntimeEvent[] {
+  const events: RuntimeEvent[] = [];
+
+  if (resolution.kind === 'NONE') {
+    if (resolution.reason === 'NIGHT_KILL') {
+      appendSystemEvent(session, SystemEventType.NO_KILL_TONIGHT, transitionAt,
+        SystemEventMetadataBuilders.noKillTonight());
+    }
+    return events;
+  }
+
+  const eliminated = eliminatePlayer(session, lobby, resolution.targetPlayerId, transitionAt);
+  if (!eliminated) return events;
+
+  events.push({
+    type: 'PLAYER_ELIMINATED',
+    playerId: resolution.targetPlayerId,
+    reason: resolution.reason,
+    at: transitionAt,
+  });
+
+  if (resolution.reason === 'DAY_VOTE') {
+    appendSystemEvent(session, SystemEventType.PLAYER_VOTED_OUT, transitionAt,
+      SystemEventMetadataBuilders.playerVotedOut(resolution.targetPlayerId, resolution.targetDisplayName));
+  } else {
+    appendSystemEvent(session, SystemEventType.PLAYER_KILLED_AT_NIGHT, transitionAt,
+      SystemEventMetadataBuilders.playerKilledAtNight(resolution.targetPlayerId, resolution.targetDisplayName));
+  }
+
+  const winnerTeam = applyWinState(session, transitionAt);
+  if (winnerTeam) {
+    events.push({ type: 'GAME_ENDED', winnerTeam, status: session.status, at: transitionAt });
+  }
+
+  return events;
+}
+
 export function reconcileSessionRuntime(
   session: GameState,
   lobby: LobbyState,
@@ -204,33 +270,13 @@ export function reconcileSessionRuntime(
   const previousCycle = session.cycle;
 
   if (previousPhase === Phase.DAY_VOTE) {
-    const eliminationTarget = resolveDayVoteEliminationTarget(session);
-    const targetName = eliminationTarget ? session.players[eliminationTarget]?.displayName : undefined;
-
+    const resolution = resolveDayVote(session);
     clearCycleIntents(session, previousCycle, IntentType.SUBMIT_VOTE);
-
-    if (eliminationTarget && eliminatePlayer(session, lobby, eliminationTarget, transitionAt)) {
-      events.push({
-        type: 'PLAYER_ELIMINATED',
-        playerId: eliminationTarget,
-        reason: 'DAY_VOTE',
-        at: transitionAt,
-      });
-      appendSystemEvent(session, SystemEventType.PLAYER_VOTED_OUT, transitionAt,
-        SystemEventMetadataBuilders.playerVotedOut(eliminationTarget, targetName ?? ''));
-
-      const winnerTeam = applyWinState(session, transitionAt);
-      if (winnerTeam) {
-        events.push({
-          type: 'GAME_ENDED',
-          winnerTeam,
-          status: session.status,
-          at: transitionAt,
-        });
-      }
-    }
+    events.push(...applyEliminationOutcome(session, lobby, resolution, transitionAt));
   } else if (previousPhase === Phase.NIGHT_ACTIONS) {
+    const resolution = resolveNightKill(session);
     clearCycleIntents(session, previousCycle, IntentType.SUBMIT_NIGHT_ACTION);
+    events.push(...applyEliminationOutcome(session, lobby, resolution, transitionAt));
   }
 
   if (session.status !== SessionStatus.ACTIVE) {

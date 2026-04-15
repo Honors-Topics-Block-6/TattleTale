@@ -483,4 +483,119 @@ describe('runtime-domain', () => {
       expect(resolveHackerKillTargetForTest(session)).toBe(f1);
     });
   });
+
+  describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
+    function toNightActions(now: string) {
+      const lobby = buildLobby(5);
+      const session = buildSessionFromLobby(lobby, 'game-1', now);
+      initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
+      session.phase = Phase.NIGHT_ACTIONS;
+      session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      return { lobby, session };
+    }
+
+    it('applies the plurality kill, emits PLAYER_ELIMINATED with reason NIGHT_KILL, and appends PLAYER_KILLED_AT_NIGHT', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!.playerId;
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h,
+          type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS,
+          cycle: session.cycle,
+          createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const elim = events.find((e) => e.type === 'PLAYER_ELIMINATED');
+      expect(elim).toBeDefined();
+      if (elim && elim.type === 'PLAYER_ELIMINATED') {
+        expect(elim.reason).toBe('NIGHT_KILL');
+        expect(elim.playerId).toBe(friend);
+      }
+      expect(session.players[friend].alive).toBe(false);
+      const sysEvent = session.systemEvents.find((e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT);
+      expect(sysEvent).toBeDefined();
+      expect(sysEvent?.metadata).toEqual({
+        type: 'PLAYER_KILLED_AT_NIGHT',
+        targetPlayerId: friend,
+        targetDisplayName: session.players[friend]?.displayName ?? expect.any(String),
+      });
+    });
+
+    it('appends NO_KILL_TONIGHT when Hackers tie', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const [h1, h2] = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[0], metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      appendIntent(session, {
+        playerId: h2, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(events.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeUndefined();
+      const sysEvent = session.systemEvents.find((e) => e.type === SystemEventType.NO_KILL_TONIGHT);
+      expect(sysEvent).toBeDefined();
+      expect(sysEvent?.metadata).toEqual({ type: 'NO_KILL_TONIGHT' });
+    });
+
+    it('triggers GAME_ENDED when the night kill reaches the win threshold', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
+      session.players[friends[0]].alive = false;
+
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(session.status).toBe(SessionStatus.HACKERS_WIN);
+      expect(events.find((e) => e.type === 'GAME_ENDED')).toBeDefined();
+    });
+
+    it('does not append PLAYER_KILLED_AT_NIGHT when no Hackers are alive', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      Object.values(session.players)
+        .filter((p) => p.team === Team.HACKERS)
+        .forEach((p) => { p.alive = false; });
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(events.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeUndefined();
+    });
+
+    it('uses the metadata builder so PLAYER_KILLED_AT_NIGHT entries match the typed schema', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!;
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend.playerId, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      const evt = session.systemEvents.find((e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT);
+      expect(evt?.metadata).toEqual({
+        type: 'PLAYER_KILLED_AT_NIGHT',
+        targetPlayerId: friend.playerId,
+        targetDisplayName: friend.displayName,
+      });
+    });
+  });
 });
