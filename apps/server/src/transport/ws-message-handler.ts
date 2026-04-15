@@ -1,8 +1,10 @@
 import {
   IntentType,
   LobbyStatus,
+  Phase,
   SessionStatus,
   SystemEventType,
+  Team,
   type JoinLobbyPayload,
   type KickPlayerPayload,
   type RejoinLobbyPayload,
@@ -654,6 +656,44 @@ export async function handleSubmitIntent(
         if (!target || !target.alive) {
           return fail('INVALID_VOTE_TARGET', 'Vote target must be an alive player.');
         }
+      }
+    }
+
+    // Validate SUBMIT_NIGHT_ACTION payload
+    if (intent.type === IntentType.SUBMIT_NIGHT_ACTION) {
+      const nightPayload = intent.payload as NightActionIntentPayload;
+
+      // Validate payload shape
+      if (
+        typeof nightPayload?.actionType !== 'string'
+        || (nightPayload.targetPlayerId !== null && typeof nightPayload.targetPlayerId !== 'string')
+      ) {
+        return fail('INVALID_PAYLOAD', 'Night action payload is malformed.');
+      }
+
+      // Only HACKER_KILL is supported in MVP
+      if (nightPayload.actionType !== 'HACKER_KILL') {
+        return fail('UNSUPPORTED_ACTION', 'Only HACKER_KILL is supported.');
+      }
+
+      // Sender must be a living Hacker
+      const sender = session.players[actorId];
+      if (!sender || !sender.alive || sender.team !== Team.HACKERS) {
+        return fail('NOT_AUTHORIZED', 'Only living Hackers can submit night kill actions.');
+      }
+
+      // Target must be a living non-Hacker who is not the sender
+      const nightTarget = nightPayload.targetPlayerId
+        ? session.players[nightPayload.targetPlayerId]
+        : undefined;
+      if (
+        !nightPayload.targetPlayerId
+        || nightPayload.targetPlayerId === actorId
+        || !nightTarget
+        || !nightTarget.alive
+        || nightTarget.team === Team.HACKERS
+      ) {
+        return fail('INVALID_TARGET', 'Target must be a living non-Hacker player.');
       }
     }
 
