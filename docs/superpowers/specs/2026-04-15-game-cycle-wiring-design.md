@@ -70,7 +70,8 @@ The DO alarm drives phase transitions deterministically. `reconcileSessionRuntim
 `contracts/views.ts`:
 
 - `SystemEventView` gains `metadata?: Record<string, string>` (optional, backward compatible).
-- `PlayerSessionView` gains `nightKillTally: Record<string, number> | null`, `myTeammates: string[]`.
+- `PlayerSessionView` gains `nightKillTally: Record<string, number> | null`, `myTeammates: string[]`, and `myConfirmedNightKillTarget: string | null` (the viewing Hacker's own current-cycle HACKER_KILL target, if any).
+- `PlayerSessionView.myTeam` already exists as `Team` (non-null) on views.ts:110 — no change, but noted here so downstream sections can refer to it.
 
 ### Game types (`apps/server/src/domain/game/types.ts`)
 
@@ -196,11 +197,12 @@ Extend the existing `reason → cause` map in `broadcastPlayerEliminated`:
 
 ### `projections.ts` — `toPlayerSessionView`
 
-Add hacker-scoped night tally and teammate roster:
+Add hacker-scoped night tally, teammate roster, and own-target rehydration field:
 
 ```ts
 let nightKillTally: Record<string, number> | null = null;
 let myTeammates: string[] = [];
+let myConfirmedNightKillTarget: string | null = null;
 
 if (player?.alive && player?.team === Team.HACKERS) {
   myTeammates = Object.values(session.players)
@@ -209,11 +211,24 @@ if (player?.alive && player?.team === Team.HACKERS) {
 
   if (session.phase === Phase.NIGHT_ACTIONS) {
     nightKillTally = tallyCurrentCycleNightKillIntents(session);
+
+    // The viewer's own current-cycle HACKER_KILL target, if submitted.
+    // Lets a reconnecting Hacker rehydrate `confirmedNightKill` reliably.
+    const ownIntent = session.pendingIntents.find(i =>
+      i.playerId === playerId
+      && i.type === IntentType.SUBMIT_NIGHT_ACTION
+      && i.cycle === session.cycle
+      && (i.payload as NightActionIntentPayload).actionType === 'HACKER_KILL'
+    );
+    myConfirmedNightKillTarget =
+      (ownIntent?.payload as NightActionIntentPayload | undefined)?.targetPlayerId ?? null;
   }
 }
 ```
 
-`nightKillTally` is `null` for Friends, for dead Hackers, and outside NIGHT_ACTIONS. Friends never see the hacker tally in server traffic.
+`nightKillTally` and `myConfirmedNightKillTarget` are both `null` for Friends, for dead Hackers, and outside NIGHT_ACTIONS. Friends never see the hacker tally in server traffic.
+
+`myTeam` is already in the projection (projections.ts:63, defaulting to `FRIENDS` when `player` is undefined). No change to that field here.
 
 The existing day-vote `voteTally` remains public to all viewers (no change).
 
@@ -225,7 +240,7 @@ No change.
 
 ### `game-room.ts`
 
-No structural change. `sessionState` broadcasts already flow the new `systemEvents.metadata`, `nightKillTally`, and `myTeammates`. The `broadcastPlayerEliminated` helper just needs the extended cause map above.
+No structural change. `sessionState` broadcasts already flow the new `systemEvents.metadata`, `nightKillTally`, `myTeammates`, and `myConfirmedNightKillTarget`. The `broadcastPlayerEliminated` helper just needs the extended cause map above.
 
 ## Client Changes
 
@@ -233,11 +248,11 @@ No structural change. `sessionState` broadcasts already flow the new `systemEven
 
 Session slice adds:
 
-- `myTeam: 'HACKERS' | 'FRIENDS' | null`
+- `myTeam: 'HACKERS' | 'FRIENDS'` — sourced from `PlayerSessionView.myTeam` (always non-null once sessionState has arrived; before that, the slice is uninitialized rather than `null`).
 - `myTeammates: string[]`
 - `nightKillTally: Record<string, number> | null`
-- `pendingNightKillSelection: string | null` (local-only, optimistic)
-- `confirmedNightKill: string | null` (local-only, echoes server-accepted intent)
+- `confirmedNightKill: string | null` — sourced from `PlayerSessionView.myConfirmedNightKillTarget`. Server-authoritative; rehydrates correctly on reconnect.
+- `pendingNightKillSelection: string | null` — local-only optimistic selection before confirm, analogous to day-vote `pendingSelection`.
 
 System-events slice: pass-through of `metadata` (no schema change in the store).
 
@@ -248,7 +263,7 @@ Selectors:
 
 ### Socket hook (`apps/web/src/hooks/useGameSocket.js`)
 
-Extend `syncSessionState` to copy `myTeam`, `myTeammates`, `nightKillTally` into the store. No new message types.
+Extend `syncSessionState` to copy `myTeam`, `myTeammates`, `nightKillTally`, and `myConfirmedNightKillTarget` (→ store `confirmedNightKill`) into the store. No new message types.
 
 `playerEliminated` handler is unchanged in shape; now receives `cause: 'NIGHT_KILL'` in some cases. `EliminationSequence` branches on cause.
 
@@ -357,13 +372,19 @@ Night kill can bring `hackersAlive ≥ ceil(aliveCount/2)` → `HACKERS_WIN`. `a
 
 ### Alarm skew / replay
 
-`reconcileSessionRuntime` is idempotent past the boundary: `clearCycleIntents` consumes intents before phase advance, `eliminatePlayer` is a no-op on already-dead targets, phase-advance uses `previousPhase` snapshot. No additional protection needed.
+Phase-boundary resolution is idempotent by construction, enforced jointly by the deadline check inside `reconcileSessionRuntime` and by Durable Object storage transactionality. The reasoning:
+
+- `reconcileSessionRuntime` early-returns when `Date.parse(session.timers.currentPhaseEndsAt) > nowMs`. A successful reconcile advances the deadline to the next phase's `deadline + durationSeconds`, so an immediate re-invocation with the same `now` sees the new deadline in the future and exits without touching state.
+- Cloudflare DO storage commits transactionally when the alarm handler returns cleanly. If the handler throws partway through (e.g., after `eliminatePlayer` but before phase advance), the reactive runtime discards all uncommitted changes. The next alarm invocation sees pre-reconcile state and replays the full resolution — deterministically, because the same inputs (deadline passed, same intents, same players) yield the same events. `appendSystemEvent` will produce the same record with the same type and metadata. `eliminatePlayer` is no-op on already-dead targets — but post-rollback the target is alive again, so the re-run eliminates them once.
+- The only way to double-append the same boundary's system event is a scenario where the DO runtime re-invokes a handler whose storage already committed, which the platform doesn't do for a single alarm. Alarms may be scheduled at-least-once, but once a handler commits, the deadline has moved, and the deadline check gates the second invocation.
+
+Defensive follow-up (not required for MVP): add a test that calls `alarm()` twice at the same `now` (first with unreached deadline, then with reached deadline, then a third time with reached deadline again) and asserts exactly one `PhaseAdvanced`, one elimination, and one system event.
 
 ### Reconnect during night
 
-`PlayerSessionView` returns phase, deadline, hacker-scoped tally (if applicable), `systemEvents`, and membership-filtered channels. `myPendingIntentTypes` tells the client whether they've already submitted a night action; NightPanel reads this to suppress re-submission.
+`PlayerSessionView` returns phase, deadline, hacker-scoped tally (if applicable), `systemEvents`, membership-filtered channels, and — new in this spec — `myConfirmedNightKillTarget`. On reconnect a Hacker's `NightPanel` rehydrates `confirmedNightKill` directly from the projection, so they see which target they've locked in and the panel correctly suppresses resubmission.
 
-Caveat: `myPendingIntentTypes` carries types only, not payloads, so a reconnected Hacker who already voted sees "you've submitted" state but not which target they picked. They can still see the aggregate `nightKillTally`. This matches the existing day-vote reconnect behavior (same limitation on `confirmedVote`), so we're consistent rather than inventing a new pattern. Rich payload rehydration is a separate concern.
+Day-vote `confirmedVote` still has the older "I know I voted but not for whom on reconnect" limitation. Tightening that is symmetric to what we do here and is a cheap follow-up, but it's pre-existing behavior and not part of this scope.
 
 Chat history on reconnect remains out of scope (see Follow-ups).
 
@@ -421,6 +442,7 @@ For `SEND_MESSAGE`:
 
 - `nightKillTally` is populated only for living Hackers during NIGHT_ACTIONS; null otherwise (Friends, dead Hackers, other phases).
 - `myTeammates` populated for Hackers only (empty for Friends).
+- `myConfirmedNightKillTarget` matches the viewer's own current-cycle HACKER_KILL target if submitted; null if not submitted, if viewer is a Friend, if viewer is a dead Hacker, or outside NIGHT_ACTIONS.
 - Channels filtered by membership — Friends don't see `hacker`.
 - `systemEvents` pass through `metadata`.
 
@@ -435,6 +457,8 @@ Using Miniflare / vitest-pool-workers, run a single room through a full cycle wi
 
 Additional: "hacker disconnects mid-night" — disconnected Hacker's intent cleared only on elimination, not disconnect. Verify behavior.
 
+Additional: **alarm replay idempotency** — at a phase boundary, invoke `reconcileSessionRuntime` (or the DO `alarm()` wrapper) twice at the same `now`. Assert exactly one `PhaseAdvanced` event, exactly one elimination (if applicable), exactly one matching system event, and that `currentPhaseEndsAt` advances only once.
+
 ### Client tests
 
 Only where non-trivial logic lives:
@@ -445,9 +469,21 @@ Only where non-trivial logic lives:
 
 ### Manual smoke checklist
 
-1. Two browsers, 2-player lobby, start game. Play one full cycle. Verify HACKERS_WIN when the Hacker kills the Friend at night.
-2. Restart. Verify FRIENDS_WIN when the Friend correctly votes out the Hacker on DAY_VOTE.
-3. 5-player run (multiple tabs): full cycle including a night tie → `NO_KILL_TONIGHT`.
+Player counts below reflect what `chooseHackerCount(n)` actually produces (n ≤ 10 → 2 Hackers; n ≥ 11 → 3 Hackers; n ≥ 16 → 4 Hackers). Tests assume seeded randomness or explicit role assertion in-client; without that, re-run until the desired split lands.
+
+1. **HACKERS_WIN via night kill path.** 5 tabs, 5-player lobby. `chooseHackerCount(5) = 2` → 2 Hackers + 3 Friends. Script:
+   - DAY_VOTE: all 5 abstain (or no majority) → `NO_VOTE_OUT`-style outcome (abstain plurality → null target, no elimination). Still alive: 2H + 3F.
+   - NIGHT_ACTIONS: both Hackers submit `HACKER_KILL` on the same Friend → plurality of 2 → Friend eliminated at NIGHT_RESOLVE. State: 2H + 2F. `applyWinState`: hackersAlive=2, aliveCount=4, ceil(4/2)=2, 2≥2 → `HACKERS_WIN`. WinScreen renders on next `sessionState`.
+   - Assert: `PLAYER_KILLED_AT_NIGHT` system event visible with the Friend's display name; `playerEliminated` broadcast carries `cause: 'NIGHT_KILL'`; session.status terminal; no further alarm.
+2. **FRIENDS_WIN via day vote path.** Restart; same 5-player setup. Script:
+   - DAY_VOTE 1: all 3 Friends coordinate to vote Hacker A; Hackers split their votes or vote for Friends. Tally: Hacker A with 3 votes (majority) → eliminated. State: 1H + 3F.
+   - NIGHT_ACTIONS 1: remaining Hacker kills any Friend → 1H + 2F (aliveCount=3, ceil=2, 1<2, game continues).
+   - DAY_VOTE 2: remaining 2 Friends + remaining 1 Hacker vote. If both Friends vote the Hacker: tally 2-1, Hacker eliminated → 0H + 2F → `FRIENDS_WIN`.
+   - Assert: `PLAYER_VOTED_OUT` system events at each day vote; final status `FRIENDS_WIN`.
+3. **`NO_KILL_TONIGHT` path.** 5-player lobby. In NIGHT_ACTIONS, one Hacker picks Friend A, the other Hacker picks Friend B (or abstains). Tally ties (or only one vote exists and splits against abstains) → `resolveHackerKillTarget` returns null → system event `NO_KILL_TONIGHT` in the feed; no `playerEliminated` broadcast; game continues.
+4. **Reconnect mid-night (Hacker).** 5-player lobby. During NIGHT_ACTIONS, Hacker A picks a target, then force-closes their tab and reopens. On rejoin, their `NightPanel` shows the target already selected (via `myConfirmedNightKillTarget`) and resubmission is suppressed.
+
+Item 4 confirms the issue-1 fix empirically.
 
 ### Out of scope for testing
 
