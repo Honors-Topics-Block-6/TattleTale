@@ -30,6 +30,12 @@ const initialState = {
   confirmedVote: null,
   voteTally: null,
 
+  // Night-kill slice (Hacker-scoped)
+  myTeam: null,
+  myTeammates: [],
+  hackerNightView: null,
+  pendingNightKillSelection: null,
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -133,6 +139,19 @@ const useGameStore = create(
         ) {
           state.pendingSelection = null;
         }
+      }),
+
+    // --- Night-kill actions ---
+
+    selectNightKillTarget: (id) =>
+      set((state) => {
+        if (state.hackerNightView?.confirmedTarget !== null && state.hackerNightView?.confirmedTarget !== undefined) return;
+        state.pendingNightKillSelection = id;
+      }),
+
+    clearNightKillSelection: () =>
+      set((state) => {
+        state.pendingNightKillSelection = null;
       }),
 
     // --- Session actions ---
@@ -241,6 +260,15 @@ const useGameStore = create(
           }
         }
 
+        // Night-kill slice
+        state.myTeam = view.myTeam;
+        state.myTeammates = view.myTeammates ?? [];
+        state.hackerNightView = view.hackerNightView ?? null;
+        // Clear pending night selection on phase change
+        if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
+          state.pendingNightKillSelection = null;
+        }
+
         // Session slice
         state.gameId = view.gameId;
         state.lobbyCode = view.lobbyCode;
@@ -256,3 +284,30 @@ const useGameStore = create(
 );
 
 export default useGameStore;
+
+export function selectIsHacker(state) {
+  if (state.myTeam !== 'HACKERS') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsHackerNight(state) {
+  return state.hackerNightView !== null;
+}
+
+export function selectNightKillTally(state) {
+  return state.hackerNightView?.tally ?? {};
+}
+
+export function selectConfirmedNightKill(state) {
+  return state.hackerNightView?.confirmedTarget ?? null;
+}
+
+export function selectNightKillCandidates(state) {
+  if (!state.players) return [];
+  const hackerSet = new Set([state.selfId, ...(state.myTeammates ?? [])]);
+  return Object.values(state.players).filter(
+    (p) => p.alive && !hackerSet.has(p.playerId),
+  );
+}
+
