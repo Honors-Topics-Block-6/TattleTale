@@ -13,6 +13,7 @@ export enum ChannelType {
   ROLE = 'ROLE',
   TEMP = 'TEMP',
   SYSTEM = 'SYSTEM',
+  HACKER = 'HACKER',
 }
 
 export enum IntentType {
@@ -28,6 +29,9 @@ export enum SystemEventType {
   TEMP_CHANNEL_CREATED = 'TEMP_CHANNEL_CREATED',
   PSYCHIC_SIGNAL_RECEIVED = 'PSYCHIC_SIGNAL_RECEIVED',
   GAME_STARTED = 'GAME_STARTED',
+  PLAYER_VOTED_OUT = 'PLAYER_VOTED_OUT',
+  PLAYER_KILLED_AT_NIGHT = 'PLAYER_KILLED_AT_NIGHT',
+  NO_KILL_TONIGHT = 'NO_KILL_TONIGHT',
 }
 
 export enum LobbyStatus {

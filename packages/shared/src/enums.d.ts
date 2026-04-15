@@ -11,7 +11,8 @@ export declare enum ChannelType {
     PRIVATE = "PRIVATE",
     ROLE = "ROLE",
     TEMP = "TEMP",
-    SYSTEM = "SYSTEM"
+    SYSTEM = "SYSTEM",
+    HACKER = "HACKER"
 }
 export declare enum IntentType {
     SEND_MESSAGE = "SEND_MESSAGE",
@@ -24,11 +25,23 @@ export declare enum SystemEventType {
     MESSAGE_INTEGRITY_COMPROMISED = "MESSAGE_INTEGRITY_COMPROMISED",
     TEMP_CHANNEL_CREATED = "TEMP_CHANNEL_CREATED",
     PSYCHIC_SIGNAL_RECEIVED = "PSYCHIC_SIGNAL_RECEIVED",
-    GAME_STARTED = "GAME_STARTED"
+    GAME_STARTED = "GAME_STARTED",
+    PLAYER_VOTED_OUT = "PLAYER_VOTED_OUT",
+    PLAYER_KILLED_AT_NIGHT = "PLAYER_KILLED_AT_NIGHT",
+    NO_KILL_TONIGHT = "NO_KILL_TONIGHT"
 }
 export declare enum LobbyStatus {
     WAITING = "WAITING",
     IN_GAME = "IN_GAME",
     CLOSED = "CLOSED"
+}
+export declare enum Team {
+    FRIENDS = "FRIENDS",
+    HACKERS = "HACKERS"
+}
+export declare enum SessionStatus {
+    ACTIVE = "ACTIVE",
+    FRIENDS_WIN = "FRIENDS_WIN",
+    HACKERS_WIN = "HACKERS_WIN"
 }
 //# sourceMappingURL=enums.d.ts.map
