@@ -51,6 +51,13 @@ export function buildSessionFromLobby(
         locked: false,
         expiresAt: null,
       },
+      hacker: {
+        id: 'hacker',
+        type: ChannelType.HACKER,
+        members: [],
+        locked: false,
+        expiresAt: null,
+      },
     },
     pendingIntents: [],
     systemEvents: [

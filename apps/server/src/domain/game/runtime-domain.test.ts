@@ -1,4 +1,4 @@
-import { IntentType, LobbyStatus, Phase, SessionStatus, Team } from '@tattletale/shared';
+import { IntentType, LobbyStatus, Phase, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { LobbyState } from '../lobby/types.js';
@@ -267,5 +267,25 @@ describe('runtime-domain', () => {
     );
     expect(nightActions).toHaveLength(1);
     expect((nightActions[0].payload as { targetPlayerId: string | null }).targetPlayerId).toBe('p3');
+  });
+
+  it('initializeSessionRuntime: hacker channel populated, capped event log, GAME_STARTED carries typed metadata', () => {
+    const lobby = buildLobby(5);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+
+    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=5).
+    expect(session.channels.hacker).toBeDefined();
+    expect(session.channels.hacker.type).toBe('HACKER');
+    const hackerIds = Object.values(session.players)
+      .filter((p) => p.team === Team.HACKERS)
+      .map((p) => p.playerId)
+      .sort();
+    expect(session.channels.hacker.members.sort()).toEqual(hackerIds);
+    expect(hackerIds).toHaveLength(2);
+
+    // GAME_STARTED appended once with typed metadata.
+    const started = session.systemEvents.find((e) => e.type === SystemEventType.GAME_STARTED);
+    expect(started?.metadata).toEqual({ type: 'GAME_STARTED' });
   });
 });

@@ -2,8 +2,12 @@ import {
   IntentType,
   Phase,
   SessionStatus,
+  SystemEventType,
   Team,
+  type SystemEventMetadata,
 } from '@tattletale/shared';
+
+import { SystemEventMetadataBuilders } from './system-events.js';
 
 import type { LobbySettings, LobbyState } from '../lobby/types.js';
 import type {
@@ -14,6 +18,7 @@ import type {
 } from './types.js';
 
 // Temporary default split from TechSpec v1; treat as tunable during playtesting.
+const SYSTEM_EVENT_CAP = 50;
 const DAY_PHASE_WEIGHTS = [70, 20, 10] as const;
 const NIGHT_PHASE_WEIGHTS = [75, 15, 10] as const;
 const ABSTAIN_VOTE_KEY = '__ABSTAIN__';
@@ -86,6 +91,14 @@ export function initializeSessionRuntime(
   random: () => number = Math.random,
 ): void {
   assignTeams(session, random);
+
+  // Populate hacker channel with assigned Team.HACKERS players.
+  if (session.channels.hacker) {
+    session.channels.hacker.members = Object.values(session.players)
+      .filter((p) => p.team === Team.HACKERS)
+      .map((p) => p.playerId);
+  }
+
   session.status = SessionStatus.ACTIVE;
   session.winnerTeam = null;
   const durationSeconds = calculatePhaseDurations(settings)[session.phase];
@@ -327,6 +340,23 @@ function assignTeams(
 
   for (const [playerId, player] of Object.entries(session.players)) {
     player.team = hackerIds.has(playerId) ? Team.HACKERS : Team.FRIENDS;
+  }
+}
+
+function appendSystemEvent(
+  session: GameState,
+  type: SystemEventType,
+  now: string,
+  metadata: SystemEventMetadata,
+): void {
+  session.systemEvents.push({
+    id: crypto.randomUUID(),
+    type,
+    createdAt: now,
+    metadata,
+  });
+  if (session.systemEvents.length > SYSTEM_EVENT_CAP) {
+    session.systemEvents.splice(0, session.systemEvents.length - SYSTEM_EVENT_CAP);
   }
 }
 
