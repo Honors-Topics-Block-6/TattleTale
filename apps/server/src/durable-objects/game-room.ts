@@ -276,6 +276,7 @@ export class GameRoomDO implements DurableObject {
       if (ev.type !== 'PLAYER_ELIMINATED') continue;
       const cause =
         ev.reason === 'DAY_VOTE' ? 'VOTED_OUT'
+        : ev.reason === 'NIGHT_KILL' ? 'NIGHT_KILL'
         : ev.reason === 'PLAYER_LEFT' ? 'PLAYER_LEFT'
         : 'PLAYER_KICKED';
       this.broadcastPlayerEliminated(ev.playerId, cause, session.cycle, sessionPlayerIds);
