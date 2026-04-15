@@ -598,4 +598,62 @@ describe('runtime-domain', () => {
       });
     });
   });
+
+  it('replayed reconciliation at the same now does not double-append events', () => {
+    const now0 = '2026-03-17T00:00:00.000Z';
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', now0);
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now0, () => 0);
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+    const voters = Object.values(session.players).map((p) => p.playerId);
+    for (const v of voters.slice(0, 4)) {
+      appendIntent(session, {
+        playerId: v, type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: voters[4] }, phase: Phase.DAY_VOTE,
+        cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const transitionNow = '2026-03-17T00:00:31.000Z';
+    const events1 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, transitionNow);
+    const events2 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, transitionNow);
+
+    expect(events1.some((e) => e.type === 'PHASE_ADVANCED')).toBe(true);
+    expect(events1.some((e) => e.type === 'PLAYER_ELIMINATED')).toBe(true);
+    expect(events2).toHaveLength(0);
+
+    const votedOutEvents = session.systemEvents.filter(
+      (e) => e.type === SystemEventType.PLAYER_VOTED_OUT,
+    );
+    expect(votedOutEvents).toHaveLength(1);
+  });
+
+  it('triple invocation across a phase boundary still produces exactly one elimination + one system event', () => {
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+    const voters = Object.values(session.players).map((p) => p.playerId);
+    for (const v of voters.slice(0, 4)) {
+      appendIntent(session, {
+        playerId: v, type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: voters[4] }, phase: Phase.DAY_VOTE,
+        cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const e1 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:29.000Z');
+    const e2 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+    const e3 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+    expect(e1).toHaveLength(0);
+    expect(e2.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeDefined();
+    expect(e3).toHaveLength(0);
+
+    const sysEvents = session.systemEvents.filter((e) => e.type === SystemEventType.PLAYER_VOTED_OUT);
+    expect(sysEvents).toHaveLength(1);
+  });
 });
