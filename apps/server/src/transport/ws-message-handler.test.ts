@@ -320,3 +320,35 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
     expect(result).toMatchObject({ ok: false, code: 'INTENT_NOT_ALLOWED_IN_PHASE' });
   });
 });
+
+describe('handleSubmitIntent — hacker channel privacy', () => {
+  it('rejects a Friend SEND_MESSAGE to the hacker channel with NOT_IN_CHANNEL', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const friend = friendsOf(session)[0];
+    // Force-add the friend to hacker channel members to simulate a regression
+    session.channels.hacker.members.push(friend);
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: friend });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'hacker', content: 'sneaky' },
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'NOT_IN_CHANNEL' });
+  });
+
+  it('allows a living Hacker to SEND_MESSAGE on the hacker channel', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const hacker = hackersOf(session)[0];
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: hacker });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'hacker', content: 'hello team' },
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+});

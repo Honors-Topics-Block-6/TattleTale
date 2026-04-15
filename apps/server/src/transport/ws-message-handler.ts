@@ -600,6 +600,14 @@ export async function handleSubmitIntent(
       if (!channel) {
         return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
       }
+      // Defense-in-depth: HACKER channels require sender to be a living Hacker,
+      // regardless of channel membership state.
+      if (channel.type === 'HACKER') {
+        const sender = session.players[actorId];
+        if (!sender || sender.team !== Team.HACKERS || !sender.alive) {
+          return fail('NOT_IN_CHANNEL', 'You are not authorized for this channel.');
+        }
+      }
       if (!channel.members.includes(actorId)) {
         return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
       }
@@ -625,10 +633,20 @@ export async function handleSubmitIntent(
         cycle: session.cycle,
       };
 
+      // Defense-in-depth: for HACKER channels, filter recipients by team+alive
+      // even if channel.members is somehow wrong.
+      let recipients = channel.members;
+      if (channel.type === 'HACKER') {
+        recipients = recipients.filter((id) => {
+          const p = session.players[id];
+          return Boolean(p?.alive && p.team === Team.HACKERS);
+        });
+      }
+
       ctx.broadcastChannelMessage(
         messagePayload.channelId,
         message,
-        channel.members,
+        recipients,
       );
 
       return ok({ messageId: message.id });
