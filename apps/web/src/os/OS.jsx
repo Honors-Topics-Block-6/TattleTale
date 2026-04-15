@@ -92,6 +92,31 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-open HackerTerminal for living Hackers once the hacker channel is visible.
+  const myTeam = useGameStore((s) => s.myTeam);
+  const hackerChannelPresent = useGameStore((s) =>
+    Object.values(s.channels || {}).some((c) => c.type === 'HACKER')
+  );
+  const [hackerWindowOpened, setHackerWindowOpened] = useState(false);
+
+  useEffect(() => {
+    if (hackerWindowOpened) return;
+    if (myTeam !== 'HACKERS') return;
+    if (!hackerChannelPresent) return;
+    const existing = Object.values(useWindowStore.getState().windows).some(
+      (w) => w.appId === 'hacker-terminal',
+    );
+    if (existing) {
+      setHackerWindowOpened(true);
+      return;
+    }
+    const appConfig = getAppConfig('hacker-terminal');
+    if (appConfig) {
+      createWindow('hacker-terminal', appConfig);
+      setHackerWindowOpened(true);
+    }
+  }, [myTeam, hackerChannelPresent, hackerWindowOpened, createWindow]);
+
   // Game state hooks
   useThemeEffect();
   const eliminationCause = useGameStore((s) => s.eliminationCause);

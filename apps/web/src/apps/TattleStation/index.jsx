@@ -1,25 +1,46 @@
-import useGameStore from '../../stores/gameStore';
+import useGameStore, { selectIsHacker } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
 import ChatPanel from './ChatPanel';
 import VotePanel from './VotePanel';
+import NightPanel from './NightPanel';
+import NightSpectatorView from './NightSpectatorView';
+import SystemEventFeed from './SystemEventFeed';
 
-function TattleStationComponent({ windowId }) {
+function TattleStationComponent({ windowId, socket }) {
   const phase = useGameStore((s) => s.phase);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const channels = useGameStore((s) => s.channels);
   const systemEvents = useGameStore((s) => s.systemEvents);
+  const isHacker = useGameStore(selectIsHacker);
 
-  // Find the GLOBAL channel id
   const globalChannelId = Object.keys(channels).find(
     (id) => channels[id].type === 'GLOBAL'
   );
 
   const showVotePanel = phase === 'DAY_VOTE' && selfAlive;
+  const showNightUi = phase === 'NIGHT_ACTIONS' && selfAlive;
   const showSystemEvents =
     phase === 'DAY_RESOLVE' ||
     phase === 'NIGHT_RESOLVE' ||
     phase === 'NIGHT_REVEAL';
+
+  const centerPanel = (() => {
+    if (showVotePanel) return <VotePanel />;
+    if (showNightUi)
+      return isHacker ? (
+        <NightPanel socket={socket} />
+      ) : (
+        <NightSpectatorView />
+      );
+    if (showSystemEvents) return <SystemEventFeed events={systemEvents} />;
+    if (globalChannelId) return <ChatPanel channelId={globalChannelId} />;
+    return (
+      <div style={{ padding: 12, color: '#999' }}>
+        Waiting for game to start...
+      </div>
+    );
+  })();
 
   return (
     <div
@@ -41,59 +62,9 @@ function TattleStationComponent({ windowId }) {
             minHeight: 0,
           }}
         >
-          {showVotePanel ? (
-            <VotePanel />
-          ) : showSystemEvents ? (
-            <SystemEventFeed events={systemEvents} />
-          ) : globalChannelId ? (
-            <ChatPanel channelId={globalChannelId} />
-          ) : (
-            <div style={{ padding: 12, color: '#999' }}>
-              Waiting for game to start...
-            </div>
-          )}
+          {centerPanel}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SystemEventFeed({ events }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: 8,
-        background: '#fff',
-        border: '1px inset #aca899',
-        fontFamily: 'Tahoma, sans-serif',
-        fontSize: 11,
-      }}
-    >
-      {events.length === 0 && (
-        <div style={{ color: '#999', fontStyle: 'italic' }}>
-          Waiting for results...
-        </div>
-      )}
-      {events.map((event) => (
-        <div
-          key={event.id}
-          style={{
-            padding: '4px 0',
-            borderBottom: '1px solid #f0f0f0',
-            color: '#555',
-          }}
-        >
-          <span style={{ color: '#999', marginRight: 6, fontSize: 10 }}>
-            {new Date(event.createdAt).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-          </span>
-          {event.type.replace(/_/g, ' ').toLowerCase()}
-        </div>
-      ))}
     </div>
   );
 }
