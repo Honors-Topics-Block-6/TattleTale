@@ -139,6 +139,7 @@ export function toSessionView(session: GameState): SessionView {
       id: event.id,
       type: event.type,
       createdAt: event.createdAt,
+      metadata: event.metadata,
     })),
   };
 }

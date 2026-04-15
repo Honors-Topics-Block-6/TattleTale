@@ -98,6 +98,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result.ok).toBe(true);
@@ -113,6 +114,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: otherFriend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'NOT_AUTHORIZED' });
@@ -129,6 +131,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     // The generic alive check fires before the team-specific validation
@@ -144,6 +147,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: h2, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
@@ -158,6 +162,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: hacker, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
@@ -174,6 +179,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
@@ -188,6 +194,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: 'nonexistent', metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
@@ -203,6 +210,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INTENT_NOT_ALLOWED_IN_PHASE' });
@@ -218,6 +226,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'INVESTIGATE', targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'UNSUPPORTED_ACTION' });
@@ -232,6 +241,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { targetPlayerId: 'p3' } as any,
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' });
@@ -246,6 +256,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
         payload: { actionType: 'HACKER_KILL', targetPlayerId: 42 as any, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' });
@@ -261,6 +272,7 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
       intent: {
         type: IntentType.SUBMIT_VOTE,
         payload: { targetPlayerId: 'p2' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result.ok).toBe(true);
@@ -275,6 +287,7 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
       intent: {
         type: IntentType.SUBMIT_VOTE,
         payload: { targetPlayerId: 'p2' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'PLAYER_NOT_ALIVE' });
@@ -289,6 +302,7 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
       intent: {
         type: IntentType.SUBMIT_VOTE,
         payload: { targetPlayerId: 'p2' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_VOTE_TARGET' });
@@ -302,6 +316,7 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
       intent: {
         type: IntentType.SUBMIT_VOTE,
         payload: { targetPlayerId: 'ghost' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_VOTE_TARGET' });
@@ -315,6 +330,7 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
       intent: {
         type: IntentType.SUBMIT_VOTE,
         payload: { targetPlayerId: 'p2' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INTENT_NOT_ALLOWED_IN_PHASE' });
@@ -333,6 +349,7 @@ describe('handleSubmitIntent — hacker channel privacy', () => {
       intent: {
         type: IntentType.SEND_MESSAGE,
         payload: { channelId: 'hacker', content: 'sneaky' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'NOT_IN_CHANNEL' });
@@ -347,6 +364,7 @@ describe('handleSubmitIntent — hacker channel privacy', () => {
       intent: {
         type: IntentType.SEND_MESSAGE,
         payload: { channelId: 'hacker', content: 'hello team' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result.ok).toBe(true);
