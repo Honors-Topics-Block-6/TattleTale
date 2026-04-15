@@ -15,7 +15,7 @@
     "build:web": "npm run build -w @tattletale/web",
     "dev:web": "npm run build:shared && npm run dev -w @tattletale/web",
     "dev:server": "npm run build:shared && npm run dev -w @tattletale/server",
-    "test": "npm run test -w @tattletale/server"
+    "test": "npm run test -w @tattletale/server && npm run test -w @tattletale/web"
   },
   "repository": {
     "type": "git",
