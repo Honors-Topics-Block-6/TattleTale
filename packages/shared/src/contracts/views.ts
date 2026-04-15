@@ -53,10 +53,28 @@ export interface ChannelView {
   expiresAt: Phase | null;
 }
 
+/**
+ * Per-type metadata for system events. Discriminated by SystemEventType value
+ * (mirrored in the metadata `type` field for narrowing).
+ * Keep in sync with apps/server/src/domain/game/system-events.ts builders.
+ */
+export type SystemEventMetadata =
+  | { type: 'PLAYER_VOTED_OUT'; targetPlayerId: string; targetDisplayName: string }
+  | { type: 'PLAYER_KILLED_AT_NIGHT'; targetPlayerId: string; targetDisplayName: string }
+  | { type: 'NO_KILL_TONIGHT' }
+  | { type: 'GAME_STARTED' }
+  | { type: 'CHANNEL_LOCKED'; channelId: string }
+  | { type: 'COMMUNICATION_JAMMED' }
+  | { type: 'MESSAGE_INTEGRITY_COMPROMISED' }
+  | { type: 'TEMP_CHANNEL_CREATED'; channelId: string }
+  | { type: 'PSYCHIC_SIGNAL_RECEIVED' };
+
 export interface SystemEventView {
   id: string;
   type: SystemEventType;
   createdAt: string;
+  /** Typed per-event metadata. The `type` field on metadata mirrors `type` above for client narrowing. */
+  metadata: SystemEventMetadata;
 }
 
 export interface SessionView {

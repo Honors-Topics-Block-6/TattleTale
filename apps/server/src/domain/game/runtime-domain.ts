@@ -28,7 +28,7 @@ export interface RuntimePhaseAdvancedEvent {
 export interface RuntimePlayerEliminatedEvent {
   type: 'PLAYER_ELIMINATED';
   playerId: string;
-  reason: 'DAY_VOTE' | 'PLAYER_LEFT' | 'PLAYER_KICKED';
+  reason: 'DAY_VOTE' | 'NIGHT_KILL' | 'PLAYER_LEFT' | 'PLAYER_KICKED';
   at: string;
 }
 

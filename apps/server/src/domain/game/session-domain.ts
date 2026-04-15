@@ -8,6 +8,7 @@ import {
 
 import type { LobbyState } from '../lobby/types.js';
 import type { GameState } from './types.js';
+import { SystemEventMetadataBuilders } from './system-events.js';
 
 export function buildSessionFromLobby(
   lobby: LobbyState,
@@ -57,6 +58,7 @@ export function buildSessionFromLobby(
         id: crypto.randomUUID(),
         type: SystemEventType.GAME_STARTED,
         createdAt: now,
+        metadata: SystemEventMetadataBuilders.gameStarted(),
       },
     ],
     timers: {
