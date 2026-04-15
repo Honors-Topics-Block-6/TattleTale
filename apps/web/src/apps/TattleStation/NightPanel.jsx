@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import useGameStore from '../../stores/gameStore';
 
 export default function NightPanel({ socket }) {
@@ -6,7 +5,8 @@ export default function NightPanel({ socket }) {
   const selfId = useGameStore((s) => s.selfId);
   const myTeammates = useGameStore((s) => s.myTeammates);
   const hackerNightView = useGameStore((s) => s.hackerNightView);
-  const [pendingSelection, setPendingSelection] = useState(null);
+  const pendingSelection = useGameStore((s) => s.pendingNightKillSelection);
+  const selectNightKillTarget = useGameStore((s) => s.selectNightKillTarget);
 
   if (!hackerNightView) return null;
 
@@ -19,18 +19,23 @@ export default function NightPanel({ socket }) {
     (p) => p.alive && !hackerSet.has(p.playerId),
   );
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!pendingSelection || hasSubmitted) return;
-    socket.send('submitIntent', {
-      intent: {
-        type: 'SUBMIT_NIGHT_ACTION',
-        payload: {
-          actionType: 'HACKER_KILL',
-          targetPlayerId: pendingSelection,
-          metadata: {},
+    try {
+      await socket.send('submitIntent', {
+        intent: {
+          type: 'SUBMIT_NIGHT_ACTION',
+          payload: {
+            actionType: 'HACKER_KILL',
+            targetPlayerId: pendingSelection,
+            metadata: {},
+          },
+          clientTimestamp: new Date().toISOString(),
         },
-      },
-    });
+      });
+    } catch (err) {
+      console.error('Failed to submit night action:', err);
+    }
   };
 
   return (
@@ -58,7 +63,7 @@ export default function NightPanel({ socket }) {
           return (
             <div
               key={p.playerId}
-              onClick={() => !hasSubmitted && setPendingSelection(p.playerId)}
+              onClick={() => !hasSubmitted && selectNightKillTarget(p.playerId)}
               style={{
                 padding: '6px 8px',
                 cursor: hasSubmitted ? 'default' : 'pointer',

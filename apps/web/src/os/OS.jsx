@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -131,9 +131,9 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
     eliminationCycle !== null &&
     eliminationPlayed !== eliminationCycle;
 
-  const handleEliminationComplete = () => {
+  const handleEliminationComplete = useCallback(() => {
     setEliminationPlayed(eliminationCycle);
-  };
+  }, [eliminationCycle]);
 
   // Side tasks: typing + attention-check + open-2048
   const [sideTask, setSideTask] = useState(null);

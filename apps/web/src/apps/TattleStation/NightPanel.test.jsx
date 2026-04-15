@@ -72,6 +72,7 @@ describe('NightPanel', () => {
           targetPlayerId: 'p3',
           metadata: {},
         },
+        clientTimestamp: expect.any(String),
       },
     });
   });

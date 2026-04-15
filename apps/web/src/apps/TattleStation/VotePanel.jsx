@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import useGameStore from '../../stores/gameStore';
 import { useSocket } from '../../lib/SocketContext';
 
@@ -10,15 +11,15 @@ export default function VotePanel() {
   const voteTally = useGameStore((s) => s.voteTally);
   const selectPlayer = useGameStore((s) => s.selectPlayer);
   const confirmVote = useGameStore((s) => s.confirmVote);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const voteableEntries = Object.entries(players).filter(
     ([id, p]) => id !== selfId && p.alive
   );
 
   const handleConfirm = async () => {
-    if (!pendingSelection || confirmedVote !== null) return;
-    confirmVote();
-
+    if (!pendingSelection || confirmedVote !== null || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await socket.send('submitIntent', {
         intent: {
@@ -27,8 +28,11 @@ export default function VotePanel() {
           clientTimestamp: new Date().toISOString(),
         },
       });
+      confirmVote();
     } catch (err) {
       console.error('Failed to submit vote:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -133,21 +137,21 @@ export default function VotePanel() {
         <div style={{ marginTop: 12, textAlign: 'center' }}>
           <button
             onClick={handleConfirm}
-            disabled={!pendingSelection}
+            disabled={!pendingSelection || isSubmitting}
             style={{
               padding: '6px 24px',
               fontFamily: 'Tahoma, sans-serif',
               fontSize: 12,
               fontWeight: 'bold',
               border: '1px solid #7f9db9',
-              background: pendingSelection
+              background: pendingSelection && !isSubmitting
                 ? 'linear-gradient(to bottom, #ffffff, #d9e4f6)'
                 : '#ece9d8',
-              cursor: pendingSelection ? 'pointer' : 'default',
+              cursor: pendingSelection && !isSubmitting ? 'pointer' : 'default',
               borderRadius: 2,
             }}
           >
-            Confirm Vote
+            {isSubmitting ? 'Submitting…' : 'Confirm Vote'}
           </button>
           {pendingSelection && (
             <div style={{ marginTop: 4, color: '#555' }}>

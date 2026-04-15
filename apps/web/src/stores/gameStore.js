@@ -196,6 +196,7 @@ const useGameStore = create(
         const newPlayers = {};
         for (const p of view.players) {
           newPlayers[p.playerId] = {
+            playerId: p.playerId,
             displayName: p.displayName,
             alive: p.alive,
             connected: p.connected,
