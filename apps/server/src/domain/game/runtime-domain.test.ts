@@ -288,4 +288,45 @@ describe('runtime-domain', () => {
     const started = session.systemEvents.find((e) => e.type === SystemEventType.GAME_STARTED);
     expect(started?.metadata).toEqual({ type: 'GAME_STARTED' });
   });
+
+  it('DAY_VOTE → DAY_RESOLVE appends PLAYER_VOTED_OUT system event with target metadata', () => {
+    const lobby = buildLobby(5);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+
+    const voters = ['p1', 'p2', 'p4', 'p5'];
+    for (const voterId of voters) {
+      appendIntent(session, {
+        playerId: voterId,
+        type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: 'p3' },
+        phase: Phase.DAY_VOTE,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const events = reconcileSessionRuntime(
+      session,
+      lobby,
+      DEFAULT_LOBBY_SETTINGS,
+      '2026-03-17T00:00:31.000Z',
+    );
+
+    const elimEvent = events.find((e) => e.type === 'PLAYER_ELIMINATED');
+    expect(elimEvent).toBeDefined();
+
+    const sysEvent = session.systemEvents.find(
+      (e) => e.type === SystemEventType.PLAYER_VOTED_OUT,
+    );
+    expect(sysEvent).toBeDefined();
+    expect(sysEvent?.metadata).toEqual({
+      type: 'PLAYER_VOTED_OUT',
+      targetPlayerId: 'p3',
+      targetDisplayName: 'Player 3',
+    });
+  });
 });

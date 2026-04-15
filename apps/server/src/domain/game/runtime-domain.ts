@@ -205,6 +205,8 @@ export function reconcileSessionRuntime(
 
   if (previousPhase === Phase.DAY_VOTE) {
     const eliminationTarget = resolveDayVoteEliminationTarget(session);
+    const targetName = eliminationTarget ? session.players[eliminationTarget]?.displayName : undefined;
+
     clearCycleIntents(session, previousCycle, IntentType.SUBMIT_VOTE);
 
     if (eliminationTarget && eliminatePlayer(session, lobby, eliminationTarget, transitionAt)) {
@@ -214,6 +216,8 @@ export function reconcileSessionRuntime(
         reason: 'DAY_VOTE',
         at: transitionAt,
       });
+      appendSystemEvent(session, SystemEventType.PLAYER_VOTED_OUT, transitionAt,
+        SystemEventMetadataBuilders.playerVotedOut(eliminationTarget, targetName ?? ''));
 
       const winnerTeam = applyWinState(session, transitionAt);
       if (winnerTeam) {
