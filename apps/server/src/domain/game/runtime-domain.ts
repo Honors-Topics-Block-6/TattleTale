@@ -422,6 +422,61 @@ function resolveDayVoteEliminationTarget(session: GameState): string | null {
   return winner;
 }
 
+function resolveHackerKillTarget(session: GameState): string | null {
+  const livingHackers = Object.values(session.players)
+    .filter((p) => p.alive && p.team === Team.HACKERS);
+
+  if (livingHackers.length === 0) {
+    return null;
+  }
+  const livingHackerIds = new Set(livingHackers.map((p) => p.playerId));
+
+  const latestPerHacker = new Map<string, { targetPlayerId: string | null; createdAt: string }>();
+  for (const intent of session.pendingIntents) {
+    if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+    if (intent.cycle !== session.cycle) continue;
+    if (!livingHackerIds.has(intent.playerId)) continue;
+    const payload = intent.payload as NightActionIntentPayload;
+    if (payload.actionType !== 'HACKER_KILL') continue;
+
+    const existing = latestPerHacker.get(intent.playerId);
+    if (!existing || intent.createdAt > existing.createdAt) {
+      latestPerHacker.set(intent.playerId, {
+        targetPlayerId: payload.targetPlayerId ?? null,
+        createdAt: intent.createdAt,
+      });
+    }
+  }
+
+  const tally = new Map<string, number>();
+  for (const hackerId of livingHackerIds) {
+    const submitted = latestPerHacker.get(hackerId);
+    const target = submitted?.targetPlayerId ?? null;
+    const targetPlayer = target ? session.players[target] : undefined;
+    const valid =
+      target !== null
+      && target !== hackerId
+      && targetPlayer !== undefined
+      && targetPlayer.alive
+      && targetPlayer.team !== Team.HACKERS;
+    const key = valid ? target! : ABSTAIN_VOTE_KEY;
+    tally.set(key, (tally.get(key) ?? 0) + 1);
+  }
+
+  let highest = -1;
+  let leaders: string[] = [];
+  for (const [k, v] of tally) {
+    if (v > highest) { highest = v; leaders = [k]; }
+    else if (v === highest) { leaders.push(k); }
+  }
+  if (leaders.length !== 1) return null;
+  return leaders[0] === ABSTAIN_VOTE_KEY ? null : leaders[0];
+}
+
+export function resolveHackerKillTargetForTest(session: GameState): string | null {
+  return resolveHackerKillTarget(session);
+}
+
 function eliminatePlayer(
   session: GameState,
   lobby: LobbyState,

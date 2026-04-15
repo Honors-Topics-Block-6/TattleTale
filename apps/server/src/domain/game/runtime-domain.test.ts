@@ -9,6 +9,7 @@ import {
   initializeSessionRuntime,
   processElimination,
   reconcileSessionRuntime,
+  resolveHackerKillTargetForTest,
 } from './runtime-domain.js';
 import { buildSessionFromLobby } from './session-domain.js';
 
@@ -327,6 +328,159 @@ describe('runtime-domain', () => {
       type: 'PLAYER_VOTED_OUT',
       targetPlayerId: 'p3',
       targetDisplayName: 'Player 3',
+    });
+  });
+
+  describe('resolveHackerKillTarget', () => {
+    function setupNightSession() {
+      const lobby = buildLobby(5);
+      const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+      initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+      session.phase = Phase.NIGHT_ACTIONS;
+      return { lobby, session };
+    }
+
+    function submitKill(session: ReturnType<typeof setupNightSession>['session'], hackerId: string, targetId: string | null) {
+      appendIntent(session, {
+        playerId: hackerId,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: targetId, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    function hackersOf(session: ReturnType<typeof setupNightSession>['session']): string[] {
+      return Object.values(session.players)
+        .filter((p) => p.team === Team.HACKERS)
+        .map((p) => p.playerId);
+    }
+
+    function friendsOf(session: ReturnType<typeof setupNightSession>['session']): string[] {
+      return Object.values(session.players)
+        .filter((p) => p.team === Team.FRIENDS)
+        .map((p) => p.playerId);
+    }
+
+    it('returns the plurality winner when Hackers agree', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('returns null on tie between two Hackers', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('returns null when all Hackers abstain (no submissions)', () => {
+      const { session } = setupNightSession();
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('treats a target that is already dead at resolution as abstain', () => {
+      const { session, lobby } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      processElimination(session, lobby, f1, '2026-03-17T00:00:20.000Z', 'PLAYER_LEFT');
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('rejects a target that is a Hacker (treats as abstain)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      submitKill(session, h1, h2);
+      submitKill(session, h2, h2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('rejects self-target (treats as abstain)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      submitKill(session, h1, h1);
+      submitKill(session, h2, h2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('awards a lone Hacker the kill when they submit a valid target', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      session.players[h2].alive = false;
+      submitKill(session, h1, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('uses the latest intent per hacker when multiple HACKER_KILL intents exist for the same cycle', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:05.000Z',
+      });
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f2);
+    });
+
+    it('ignores SUBMIT_NIGHT_ACTION intents from non-Hackers in pendingIntents (defensive)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: f1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      submitKill(session, h1, f2);
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f2);
+    });
+
+    it('ignores intents from previous cycles', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle - 1,
+        createdAt: '2026-03-17T00:00:05.000Z',
+      });
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
     });
   });
 });
