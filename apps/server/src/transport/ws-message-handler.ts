@@ -47,6 +47,24 @@ export interface HandlerContext {
   setPlayerIdForWs(ws: WebSocket, playerId: string): void;
   broadcastLobbyState(lobby: LobbyState): void;
   broadcastSessionState(session: GameState): void;
+  broadcastChannelMessage(
+    channelId: string,
+    message: {
+      id: string;
+      senderId: string;
+      senderName: string;
+      content: string;
+      timestamp: string;
+      cycle: number;
+    },
+    recipientPlayerIds: string[],
+  ): void;
+  broadcastPlayerEliminated(
+    playerId: string,
+    cause: 'VOTED_OUT' | 'NIGHT_KILL' | 'PLAYER_LEFT' | 'PLAYER_KICKED',
+    cycle: number,
+    recipientPlayerIds: string[],
+  ): void;
   closeWsForPlayer(playerId: string, code: number, reason: string): void;
   setPhaseAlarm(deadlineMs: number, phase: string, cycle: number): Promise<void>;
   clearPhaseAlarm(): Promise<void>;
@@ -401,6 +419,13 @@ export async function handleKickPlayer(
       session.players[payload.targetPlayerId].connected = false;
     }
 
+    ctx.broadcastPlayerEliminated(
+      payload.targetPlayerId,
+      'PLAYER_KICKED',
+      session.cycle,
+      Object.keys(session.players),
+    );
+
     if (target.isHost) {
       const candidates = lobby.players.filter((p) => p.playerId !== payload.targetPlayerId);
       assignHost(lobby, selectNextHost(candidates));
@@ -565,9 +590,46 @@ export async function handleSubmitIntent(
 
     const { intent } = payload;
 
-    // SEND_MESSAGE is not yet implemented
+    // SEND_MESSAGE: broadcast a chat message to the channel's members.
+    // Messages are transient — we do not persist them in GameState.
     if (intent.type === IntentType.SEND_MESSAGE) {
-      return fail('NOT_IMPLEMENTED', 'SEND_MESSAGE not yet implemented');
+      const messagePayload = intent.payload as { channelId: string; content: string };
+      const channel = session.channels[messagePayload.channelId];
+      if (!channel) {
+        return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
+      }
+      if (!channel.members.includes(actorId)) {
+        return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
+      }
+      if (channel.locked) {
+        return fail('CHANNEL_LOCKED', 'This channel is locked.');
+      }
+
+      const trimmed = messagePayload.content.trim();
+      if (!trimmed) {
+        return fail('EMPTY_MESSAGE', 'Message content cannot be empty.');
+      }
+      if (trimmed.length > 500) {
+        return fail('MESSAGE_TOO_LONG', 'Message exceeds 500 characters.');
+      }
+
+      const now = new Date().toISOString();
+      const message = {
+        id: generateId(),
+        senderId: actorId,
+        senderName: session.players[actorId].displayName,
+        content: trimmed,
+        timestamp: now,
+        cycle: session.cycle,
+      };
+
+      ctx.broadcastChannelMessage(
+        messagePayload.channelId,
+        message,
+        channel.members,
+      );
+
+      return ok({ messageId: message.id });
     }
 
     if (

@@ -53,6 +53,7 @@ export interface SystemEventState {
 
 export interface GameTimersState {
   currentPhaseEndsAt: string | null;
+  currentPhaseDurationSeconds: number;
 }
 
 export interface GameState {

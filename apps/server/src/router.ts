@@ -81,8 +81,8 @@ export function createRouter() {
     displayName: z.string().min(2).max(24),
     settings: z
       .object({
-        minPlayers: z.number().int().min(7).max(20).optional(),
-        maxPlayers: z.number().int().min(7).max(20).optional(),
+        minPlayers: z.number().int().min(1).max(20).optional(),
+        maxPlayers: z.number().int().min(1).max(20).optional(),
         dayDurationSeconds: z.number().int().min(30).max(600).optional(),
         nightDurationSeconds: z.number().int().min(15).max(300).optional(),
       })

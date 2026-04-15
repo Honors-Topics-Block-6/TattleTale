@@ -61,6 +61,7 @@ export function buildSessionFromLobby(
     ],
     timers: {
       currentPhaseEndsAt: null,
+      currentPhaseDurationSeconds: 0,
     },
     createdAt: now,
     updatedAt: now,

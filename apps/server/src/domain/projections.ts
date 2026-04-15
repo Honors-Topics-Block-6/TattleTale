@@ -1,6 +1,6 @@
-import type { LobbyView, SessionView, PlayerSessionView } from '@tattletale/shared';
+import { IntentType, type LobbyView, type SessionView, type PlayerSessionView } from '@tattletale/shared';
 
-import type { GameState } from './game/types.js';
+import type { GameState, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
 
 export function toLobbyView(lobby: LobbyState): LobbyView {
@@ -23,6 +23,20 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
 
 export function toPlayerSessionView(session: GameState, playerId: string): PlayerSessionView {
   const player = session.players[playerId];
+
+  // Aggregate current-cycle SUBMIT_VOTE intents into a tally keyed by target.
+  // Null targets (abstains) are skipped for the tally map.
+  const voteTally: Record<string, number> = {};
+  let tallyHasAny = false;
+  for (const intent of session.pendingIntents) {
+    if (intent.type !== IntentType.SUBMIT_VOTE) continue;
+    if (intent.cycle !== session.cycle) continue;
+    const target = (intent.payload as VoteIntentPayload).targetPlayerId;
+    if (!target) continue;
+    voteTally[target] = (voteTally[target] ?? 0) + 1;
+    tallyHasAny = true;
+  }
+
   return {
     gameId: session.gameId,
     lobbyCode: session.lobbyCode,
@@ -30,6 +44,8 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     phase: session.phase,
     cycle: session.cycle,
     currentPhaseEndsAt: session.timers.currentPhaseEndsAt,
+    phaseDurationSeconds: session.timers.currentPhaseDurationSeconds,
+    voteTally: tallyHasAny ? voteTally : null,
     players: Object.values(session.players).map((p) => ({
       playerId: p.playerId,
       displayName: p.displayName,

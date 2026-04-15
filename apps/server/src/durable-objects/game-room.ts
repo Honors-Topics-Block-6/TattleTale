@@ -269,6 +269,18 @@ export class GameRoomDO implements DurableObject {
     await this.repo.saveLobby(lobby);
     await persistRuntimeEvents(this.auditRepo, session.gameId, events);
 
+    // Push targeted playerEliminated events so clients can trigger the
+    // elimination sequence; reason→cause mapping matches PlayerEliminatedPayload.
+    const sessionPlayerIds = Object.keys(session.players);
+    for (const ev of events) {
+      if (ev.type !== 'PLAYER_ELIMINATED') continue;
+      const cause =
+        ev.reason === 'DAY_VOTE' ? 'VOTED_OUT'
+        : ev.reason === 'PLAYER_LEFT' ? 'PLAYER_LEFT'
+        : 'PLAYER_KICKED';
+      this.broadcastPlayerEliminated(ev.playerId, cause, session.cycle, sessionPlayerIds);
+    }
+
     // Check if game ended (win condition reached during reconciliation)
     if (session.status !== SessionStatus.ACTIVE) {
       await this.handleGameEnd(session, lobby);
@@ -337,6 +349,10 @@ export class GameRoomDO implements DurableObject {
       },
       broadcastLobbyState: (lobby) => this.broadcastLobbyState(lobby),
       broadcastSessionState: (session) => this.broadcastSessionState(session),
+      broadcastChannelMessage: (channelId, message, recipientPlayerIds) =>
+        this.broadcastChannelMessage(channelId, message, recipientPlayerIds),
+      broadcastPlayerEliminated: (playerId, cause, cycle, recipientPlayerIds) =>
+        this.broadcastPlayerEliminated(playerId, cause, cycle, recipientPlayerIds),
       closeWsForPlayer: (playerId, code, reason) => this.closeWsForPlayer(playerId, code, reason),
       setPhaseAlarm: async (deadlineMs, phase, cycle) => {
         await this.repo.savePhaseDeadline({ phase, cycle, deadlineMs });
@@ -365,6 +381,50 @@ export class GameRoomDO implements DurableObject {
       const view = toPlayerSessionView(session, attachment.playerId);
       const msg: ServerMessage = { type: 'sessionState', payload: view };
       try { ws.send(JSON.stringify(msg)); } catch { /* dead socket */ }
+    }
+  }
+
+  private broadcastChannelMessage(
+    channelId: string,
+    message: {
+      id: string;
+      senderId: string;
+      senderName: string;
+      content: string;
+      timestamp: string;
+      cycle: number;
+    },
+    recipientPlayerIds: string[],
+  ): void {
+    const recipients = new Set(recipientPlayerIds);
+    const msg: ServerMessage = {
+      type: 'channelMessage',
+      payload: { channelId, message },
+    };
+    const raw = JSON.stringify(msg);
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = (ws as any).deserializeAttachment() as WsAttachment;
+      if (!attachment.playerId || !recipients.has(attachment.playerId)) continue;
+      try { ws.send(raw); } catch { /* dead socket */ }
+    }
+  }
+
+  private broadcastPlayerEliminated(
+    playerId: string,
+    cause: 'VOTED_OUT' | 'NIGHT_KILL' | 'PLAYER_LEFT' | 'PLAYER_KICKED',
+    cycle: number,
+    recipientPlayerIds: string[],
+  ): void {
+    const recipients = new Set(recipientPlayerIds);
+    const msg: ServerMessage = {
+      type: 'playerEliminated',
+      payload: { playerId, cause, cycle },
+    };
+    const raw = JSON.stringify(msg);
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = (ws as any).deserializeAttachment() as WsAttachment;
+      if (!attachment.playerId || !recipients.has(attachment.playerId)) continue;
+      try { ws.send(raw); } catch { /* dead socket */ }
     }
   }
 

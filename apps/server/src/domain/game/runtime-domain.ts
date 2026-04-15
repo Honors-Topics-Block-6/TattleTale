@@ -88,10 +88,9 @@ export function initializeSessionRuntime(
   assignTeams(session, random);
   session.status = SessionStatus.ACTIVE;
   session.winnerTeam = null;
-  session.timers.currentPhaseEndsAt = addSeconds(
-    now,
-    calculatePhaseDurations(settings)[session.phase],
-  );
+  const durationSeconds = calculatePhaseDurations(settings)[session.phase];
+  session.timers.currentPhaseEndsAt = addSeconds(now, durationSeconds);
+  session.timers.currentPhaseDurationSeconds = durationSeconds;
   session.updatedAt = now;
 }
 
@@ -224,10 +223,9 @@ export function reconcileSessionRuntime(
   const next = nextPhase(previousPhase, previousCycle);
   session.phase = next.phase;
   session.cycle = next.cycle;
-  session.timers.currentPhaseEndsAt = addSeconds(
-    transitionAt,
-    calculatePhaseDurations(settings)[session.phase],
-  );
+  const nextDurationSeconds = calculatePhaseDurations(settings)[session.phase];
+  session.timers.currentPhaseEndsAt = addSeconds(transitionAt, nextDurationSeconds);
+  session.timers.currentPhaseDurationSeconds = nextDurationSeconds;
   session.updatedAt = transitionAt;
 
   events.push({
