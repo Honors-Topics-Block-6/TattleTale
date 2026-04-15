@@ -94,6 +94,13 @@ export interface SocketReadyPayload {
   sessionId: string | null;
 }
 
+export interface HackerNightView {
+  /** Tally of HACKER_KILL targets for the current cycle. Empty object = no submissions yet. */
+  tally: Record<string, number>;
+  /** Viewer's own confirmed HACKER_KILL target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
 export interface PlayerSessionView {
   gameId: string;
   lobbyCode: string;
@@ -109,4 +116,12 @@ export interface PlayerSessionView {
   myRole: string;
   myTeam: Team;
   voteTally: Record<string, number> | null;
+  /** Living Hackers other than the viewer. Always [] for non-Hackers and dead Hackers. Phase-independent. */
+  myTeammates: string[];
+  /**
+   * Hacker-only night state. Non-null iff viewer is a living Hacker AND phase is NIGHT_ACTIONS.
+   * Single discriminator — clients render NightPanel iff this is non-null. No other null/empty
+   * branches in the contract carry hacker-night meaning.
+   */
+  hackerNightView: HackerNightView | null;
 }
