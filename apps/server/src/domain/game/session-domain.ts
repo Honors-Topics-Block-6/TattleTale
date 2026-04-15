@@ -8,6 +8,7 @@ import {
 
 import type { LobbyState } from '../lobby/types.js';
 import type { GameState } from './types.js';
+import { SystemEventMetadataBuilders } from './system-events.js';
 
 export function buildSessionFromLobby(
   lobby: LobbyState,
@@ -50,6 +51,13 @@ export function buildSessionFromLobby(
         locked: false,
         expiresAt: null,
       },
+      hacker: {
+        id: 'hacker',
+        type: ChannelType.HACKER,
+        members: [],
+        locked: false,
+        expiresAt: null,
+      },
     },
     pendingIntents: [],
     systemEvents: [
@@ -57,10 +65,12 @@ export function buildSessionFromLobby(
         id: crypto.randomUUID(),
         type: SystemEventType.GAME_STARTED,
         createdAt: now,
+        metadata: SystemEventMetadataBuilders.gameStarted(),
       },
     ],
     timers: {
       currentPhaseEndsAt: null,
+      currentPhaseDurationSeconds: 0,
     },
     createdAt: now,
     updatedAt: now,

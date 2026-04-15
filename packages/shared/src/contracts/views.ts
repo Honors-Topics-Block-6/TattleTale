@@ -40,6 +40,11 @@ export interface SessionPlayerView {
   connected: boolean;
 }
 
+export interface PlayerSessionPlayerView extends SessionPlayerView {
+  role?: string;
+  team?: Team;
+}
+
 export interface ChannelView {
   id: string;
   type: ChannelType;
@@ -48,10 +53,28 @@ export interface ChannelView {
   expiresAt: Phase | null;
 }
 
+/**
+ * Per-type metadata for system events. Discriminated by SystemEventType value
+ * (mirrored in the metadata `type` field for narrowing).
+ * Keep in sync with apps/server/src/domain/game/system-events.ts builders.
+ */
+export type SystemEventMetadata =
+  | { type: 'PLAYER_VOTED_OUT'; targetPlayerId: string; targetDisplayName: string }
+  | { type: 'PLAYER_KILLED_AT_NIGHT'; targetPlayerId: string; targetDisplayName: string }
+  | { type: 'NO_KILL_TONIGHT' }
+  | { type: 'GAME_STARTED' }
+  | { type: 'CHANNEL_LOCKED'; channelId: string }
+  | { type: 'COMMUNICATION_JAMMED' }
+  | { type: 'MESSAGE_INTEGRITY_COMPROMISED' }
+  | { type: 'TEMP_CHANNEL_CREATED'; channelId: string }
+  | { type: 'PSYCHIC_SIGNAL_RECEIVED' };
+
 export interface SystemEventView {
   id: string;
   type: SystemEventType;
   createdAt: string;
+  /** Typed per-event metadata. The `type` field on metadata mirrors `type` above for client narrowing. */
+  metadata: SystemEventMetadata;
 }
 
 export interface SessionView {
@@ -89,6 +112,13 @@ export interface SocketReadyPayload {
   sessionId: string | null;
 }
 
+export interface HackerNightView {
+  /** Tally of HACKER_KILL targets for the current cycle. Empty object = no submissions yet. */
+  tally: Record<string, number>;
+  /** Viewer's own confirmed HACKER_KILL target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
 export interface PlayerSessionView {
   gameId: string;
   lobbyCode: string;
@@ -96,10 +126,20 @@ export interface PlayerSessionView {
   phase: Phase;
   cycle: number;
   currentPhaseEndsAt: string | null;
-  players: SessionPlayerView[];
+  phaseDurationSeconds: number;
+  players: PlayerSessionPlayerView[];
   channels: ChannelView[];
   myPendingIntentTypes: IntentType[];
   systemEvents: SystemEventView[];
   myRole: string;
   myTeam: Team;
+  voteTally: Record<string, number> | null;
+  /** Living Hackers other than the viewer. Always [] for non-Hackers and dead Hackers. Phase-independent. */
+  myTeammates: string[];
+  /**
+   * Hacker-only night state. Non-null iff viewer is a living Hacker AND phase is NIGHT_ACTIONS.
+   * Single discriminator — clients render NightPanel iff this is non-null. No other null/empty
+   * branches in the contract carry hacker-night meaning.
+   */
+  hackerNightView: HackerNightView | null;
 }

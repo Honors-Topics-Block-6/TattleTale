@@ -8,14 +8,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev:web & npm run dev:server",
+    "dev": "npm run build:shared && concurrently -k -n shared,server,web -c magenta,yellow,cyan \"npm run dev -w @tattletale/shared\" \"npm run dev -w @tattletale/server\" \"npm run dev -w @tattletale/web\"",
     "build": "npm run build:shared && npm run build -w @tattletale/server",
     "build:shared": "npm run build -w @tattletale/shared",
     "build:server": "npm run build -w @tattletale/server",
     "build:web": "npm run build -w @tattletale/web",
     "dev:web": "npm run build:shared && npm run dev -w @tattletale/web",
     "dev:server": "npm run build:shared && npm run dev -w @tattletale/server",
-    "test": "npm run test -w @tattletale/server"
+    "test": "npm run test -w @tattletale/server && npm run test -w @tattletale/web"
   },
   "repository": {
     "type": "git",
@@ -32,6 +32,7 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "typescript": "^5.9.2"
   }
 }

@@ -1,27 +1,274 @@
 import { useState } from 'react';
+import useGameStore from './stores/gameStore';
+import { useSocket } from './lib/SocketContext';
 
-export default function Lobby({ onStart }) {
-  const [hovered, setHovered] = useState(false);
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
+const API_BASE = WS_URL.replace(/^ws/, 'http');
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+function randomDisplayName() {
+  return `Player${Math.floor(Math.random() * 900) + 100}`;
+}
+
+function waitForConnected(socket, wsUrl, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let unsub = null;
+    const timeout = setTimeout(() => {
+      if (unsub) unsub();
+      reject(new Error('WebSocket connect timed out'));
+    }, timeoutMs);
+    unsub = socket.onStateChange((state) => {
+      if (state === 'connected') {
+        clearTimeout(timeout);
+        unsub();
+        resolve();
+      }
+    });
+    socket.connect(wsUrl);
+  });
+}
+
+// ─── Main component ─────────────────────────────────────────────
+
+export default function Lobby() {
+  const socket = useSocket();
+  const setSelfId = useGameStore((s) => s.setSelfId);
+  const setLobbyView = useGameStore((s) => s.setLobbyView);
+  const lobbyView = useGameStore((s) => s.lobbyView);
+  const selfId = useGameStore((s) => s.selfId);
+
+  // 'title' | 'create' | 'join' | 'room' | 'error'
+  const [screen, setScreen] = useState('title');
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Inputs
+  const [displayName, setDisplayName] = useState(randomDisplayName());
+  const [joinCode, setJoinCode] = useState('');
+
+  const goTitle = () => {
+    socket.clearCredentials();
+    socket.close();
+    setLobbyView(null);
+    setSelfId('');
+    setErrorMsg('');
+    setBusy(false);
+    setScreen('title');
+  };
+
+  const fail = (msg) => {
+    console.error('Lobby:', msg);
+    setErrorMsg(msg);
+    setScreen('error');
+    setBusy(false);
+  };
+
+  // ─── Create flow ──────────────────────────────────────────────
+
+  const handleCreate = async () => {
+    const name = displayName.trim();
+    if (name.length < 2 || name.length > 24) {
+      setErrorMsg('Display name must be 2–24 characters.');
+      return;
+    }
+    setBusy(true);
+    setErrorMsg('');
+
+    try {
+      // 1. Create the lobby over HTTP. Creator is auto-added as host.
+      const resp = await fetch(`${API_BASE}/api/lobby/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: name,
+          settings: { minPlayers: 1 },
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      const { playerId, reconnectToken, wsUrl } = data;
+
+      // 2. Connect the socket to the lobby-specific URL. Don't set credentials
+      //    yet so the socket's onopen auto-rejoin stays quiet; we rejoin
+      //    manually so we can await the result.
+      socket.clearCredentials();
+      socket.close();
+      await waitForConnected(socket, wsUrl);
+
+      // 3. Authenticate this WS as the player we created over HTTP.
+      const rejoinResp = await socket.send('rejoinLobby', {
+        playerId,
+        reconnectToken,
+      });
+      const rotated =
+        rejoinResp?.payload?.data?.reconnectToken ?? reconnectToken;
+      socket.setCredentials(playerId, rotated);
+      setSelfId(playerId);
+
+      // 4. Seed the waiting-room view from the rejoin ack (it includes the
+      //    fresh LobbyView). Subsequent changes arrive via lobbyState pushes.
+      const lobby = rejoinResp?.payload?.data?.lobby;
+      if (lobby) setLobbyView(lobby);
+
+      setBusy(false);
+      setScreen('room');
+    } catch (err) {
+      fail(err?.message || 'Failed to create lobby');
+    }
+  };
+
+  // ─── Join flow ────────────────────────────────────────────────
+
+  const handleJoin = async () => {
+    const name = displayName.trim();
+    const code = joinCode.trim().toUpperCase();
+    if (name.length < 2 || name.length > 24) {
+      setErrorMsg('Display name must be 2–24 characters.');
+      return;
+    }
+    if (code.length < 4) {
+      setErrorMsg('Enter a valid lobby code.');
+      return;
+    }
+    setBusy(true);
+    setErrorMsg('');
+
+    try {
+      const wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+
+      socket.clearCredentials();
+      socket.close();
+      await waitForConnected(socket, wsUrl);
+
+      const joinResp = await socket.send('joinLobby', { displayName: name });
+      const ack = joinResp?.payload?.data;
+      if (!ack?.playerId || !ack?.reconnectToken) {
+        throw new Error('joinLobby did not return credentials');
+      }
+      socket.setCredentials(ack.playerId, ack.reconnectToken);
+      setSelfId(ack.playerId);
+
+      if (ack.lobby) setLobbyView(ack.lobby);
+
+      setBusy(false);
+      setScreen('room');
+    } catch (err) {
+      fail(err?.message || 'Failed to join lobby');
+    }
+  };
+
+  // ─── Start game (host only) ──────────────────────────────────
+
+  const handleStartGame = async () => {
+    setBusy(true);
+    setErrorMsg('');
+    try {
+      // Server broadcasts sessionState to all clients; App.jsx sees
+      // phase !== null in the store and flips to OS automatically.
+      await socket.send('startGame', {});
+    } catch (err) {
+      fail(err?.message || 'Failed to start game');
+    }
+  };
+
+  // ─── Render ──────────────────────────────────────────────────
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      background: 'linear-gradient(135deg, #0a246a 0%, #245edb 40%, #3c82f7 70%, #0a246a 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'Tahoma, "Segoe UI", sans-serif',
-    }}>
-      <div style={{
+    <Shell>
+      {screen === 'title' && (
+        <TitleScreen
+          onCreate={() => setScreen('create')}
+          onJoin={() => setScreen('join')}
+        />
+      )}
+
+      {screen === 'create' && (
+        <CreateScreen
+          displayName={displayName}
+          setDisplayName={setDisplayName}
+          onSubmit={handleCreate}
+          onBack={goTitle}
+          busy={busy}
+          errorMsg={errorMsg}
+        />
+      )}
+
+      {screen === 'join' && (
+        <JoinScreen
+          displayName={displayName}
+          setDisplayName={setDisplayName}
+          joinCode={joinCode}
+          setJoinCode={setJoinCode}
+          onSubmit={handleJoin}
+          onBack={goTitle}
+          busy={busy}
+          errorMsg={errorMsg}
+        />
+      )}
+
+      {screen === 'room' && (
+        <RoomScreen
+          lobbyView={lobbyView}
+          selfId={selfId}
+          onStart={handleStartGame}
+          onLeave={goTitle}
+          busy={busy}
+          errorMsg={errorMsg}
+        />
+      )}
+
+      {screen === 'error' && (
+        <ErrorScreen message={errorMsg} onBack={goTitle} />
+      )}
+    </Shell>
+  );
+}
+
+// ─── Subcomponents ──────────────────────────────────────────────
+
+function Shell({ children }) {
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        background:
+          'linear-gradient(135deg, #0a246a 0%, #245edb 40%, #3c82f7 70%, #0a246a 100%)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        gap: 24,
-      }}>
-        <div style={{
-          width: 88,
-          height: 88,
+        justifyContent: 'center',
+        fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 20,
+          minWidth: 320,
+        }}
+      >
+        <Logo />
+        {children}
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+          TattleTale OS &middot; v1.0
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Logo() {
+  return (
+    <>
+      <div
+        style={{
+          width: 72,
+          height: 72,
           borderRadius: '50%',
           background: 'linear-gradient(135deg, #3c82f7, #0a246a)',
           display: 'flex',
@@ -29,58 +276,283 @@ export default function Lobby({ onStart }) {
           justifyContent: 'center',
           boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
           border: '2px solid rgba(255,255,255,0.2)',
-        }}>
-          <span style={{ fontSize: 40 }}>🖥️</span>
-        </div>
+        }}
+      >
+        <span style={{ fontSize: 34 }}>🖥️</span>
+      </div>
+      <h1
+        style={{
+          fontSize: 30,
+          fontWeight: 'bold',
+          color: '#fff',
+          margin: 0,
+          textShadow: '2px 2px 6px rgba(0,0,0,0.4)',
+          letterSpacing: 1,
+        }}
+      >
+        TattleTale
+      </h1>
+    </>
+  );
+}
 
-        <div style={{ textAlign: 'center' }}>
-          <h1 style={{
-            fontSize: 36,
-            fontWeight: 'bold',
-            color: '#fff',
-            margin: '0 0 10px',
-            textShadow: '2px 2px 6px rgba(0,0,0,0.4)',
-            letterSpacing: 1,
-          }}>
-            TattleTale
-          </h1>
-        </div>
+function PrimaryButton({ children, onClick, disabled }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        padding: '10px 36px',
+        fontSize: 15,
+        fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+        fontWeight: 'bold',
+        color: '#fff',
+        background: disabled
+          ? 'linear-gradient(to bottom, #7a8a7a, #5a6a5a)'
+          : hover
+          ? 'linear-gradient(to bottom, #4caf50, #2e7d32)'
+          : 'linear-gradient(to bottom, #3c9a41, #358b3a)',
+        border: '1px solid #2e7d32',
+        borderRadius: 4,
+        cursor: disabled ? 'wait' : 'pointer',
+        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+        transition: 'all 0.15s ease',
+        minWidth: 180,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
-        <button
-          onClick={onStart}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
+function SecondaryButton({ children, onClick, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '6px 18px',
+        fontSize: 12,
+        fontFamily: 'Tahoma, sans-serif',
+        color: '#fff',
+        background: 'rgba(255,255,255,0.12)',
+        border: '1px solid rgba(255,255,255,0.3)',
+        borderRadius: 3,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextInput({ value, onChange, placeholder, maxLength }) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      style={{
+        width: 220,
+        padding: '7px 10px',
+        fontFamily: 'Tahoma, sans-serif',
+        fontSize: 13,
+        border: '1px solid #7f9db9',
+        borderRadius: 2,
+      }}
+    />
+  );
+}
+
+function ErrorBanner({ message }) {
+  if (!message) return null;
+  return (
+    <div
+      style={{
+        maxWidth: 280,
+        padding: '6px 10px',
+        background: 'rgba(139, 0, 0, 0.75)',
+        border: '1px solid #c44',
+        borderRadius: 3,
+        color: '#fff',
+        fontSize: 12,
+        textAlign: 'center',
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
+function TitleScreen({ onCreate, onJoin }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+      <PrimaryButton onClick={onCreate}>Create Game</PrimaryButton>
+      <PrimaryButton onClick={onJoin}>Join Game</PrimaryButton>
+    </div>
+  );
+}
+
+function CreateScreen({ displayName, setDisplayName, onSubmit, onBack, busy, errorMsg }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+      <label style={{ color: '#fff', fontSize: 12 }}>Your display name</label>
+      <TextInput
+        value={displayName}
+        onChange={setDisplayName}
+        placeholder="Display name"
+        maxLength={24}
+      />
+      <ErrorBanner message={errorMsg} />
+      <PrimaryButton onClick={onSubmit} disabled={busy}>
+        {busy ? 'Creating…' : 'Create Lobby'}
+      </PrimaryButton>
+      <SecondaryButton onClick={onBack} disabled={busy}>
+        Back
+      </SecondaryButton>
+    </div>
+  );
+}
+
+function JoinScreen({
+  displayName,
+  setDisplayName,
+  joinCode,
+  setJoinCode,
+  onSubmit,
+  onBack,
+  busy,
+  errorMsg,
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+      <label style={{ color: '#fff', fontSize: 12 }}>Lobby code</label>
+      <TextInput
+        value={joinCode}
+        onChange={(v) => setJoinCode(v.toUpperCase())}
+        placeholder="e.g. ABC123"
+        maxLength={8}
+      />
+      <label style={{ color: '#fff', fontSize: 12 }}>Your display name</label>
+      <TextInput
+        value={displayName}
+        onChange={setDisplayName}
+        placeholder="Display name"
+        maxLength={24}
+      />
+      <ErrorBanner message={errorMsg} />
+      <PrimaryButton onClick={onSubmit} disabled={busy}>
+        {busy ? 'Joining…' : 'Join Lobby'}
+      </PrimaryButton>
+      <SecondaryButton onClick={onBack} disabled={busy}>
+        Back
+      </SecondaryButton>
+    </div>
+  );
+}
+
+function RoomScreen({ lobbyView, selfId, onStart, onLeave, busy, errorMsg }) {
+  const players = lobbyView?.players ?? [];
+  const code = lobbyView?.code ?? '—';
+  const self = players.find((p) => p.playerId === selfId);
+  const isHost = !!self?.isHost;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+        alignItems: 'center',
+        background: 'rgba(0,0,0,0.25)',
+        padding: '16px 24px',
+        borderRadius: 6,
+        border: '1px solid rgba(255,255,255,0.18)',
+        minWidth: 320,
+      }}
+    >
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>
+          Lobby code
+        </div>
+        <div
           style={{
-            marginTop: -14,
-            padding: '10px 48px',
-            fontSize: 16,
-            fontFamily: 'Tahoma, "Segoe UI", sans-serif',
+            fontSize: 28,
             fontWeight: 'bold',
             color: '#fff',
-            background: hovered
-              ? 'linear-gradient(to bottom, #4caf50, #2e7d32)'
-              : 'linear-gradient(to bottom, #3c9a41, #358b3a)',
-            border: '1px solid #2e7d32',
-            borderRadius: 4,
-            cursor: 'pointer',
-            boxShadow: hovered
-              ? '0 2px 12px rgba(60,154,65,0.5)'
-              : '0 2px 6px rgba(0,0,0,0.3)',
-            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-            transition: 'all 0.15s ease',
+            letterSpacing: 6,
+            fontFamily: 'Consolas, "Courier New", monospace',
           }}
         >
-          Start Game
-        </button>
-
-        <span style={{
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.35)',
-          marginTop: 12,
-        }}>
-          TattleTale OS &middot; v1.0
-        </span>
+          {code}
+        </div>
       </div>
+
+      <div style={{ width: '100%' }}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>
+          Players ({players.length})
+        </div>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {players.map((p) => (
+            <li
+              key={p.playerId}
+              style={{
+                color: '#fff',
+                fontSize: 13,
+                padding: '4px 8px',
+                background:
+                  p.playerId === selfId
+                    ? 'rgba(60,154,65,0.25)'
+                    : 'rgba(255,255,255,0.05)',
+                borderRadius: 3,
+                marginBottom: 2,
+                display: 'flex',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>
+                {p.isHost && <span title="Host">👑 </span>}
+                {p.displayName}
+                {p.playerId === selfId && (
+                  <span style={{ color: 'rgba(255,255,255,0.45)' }}> (you)</span>
+                )}
+              </span>
+              {!p.connected && (
+                <span style={{ color: '#f99', fontSize: 11 }}>disconnected</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <ErrorBanner message={errorMsg} />
+
+      {isHost ? (
+        <PrimaryButton onClick={onStart} disabled={busy || players.length < 1}>
+          {busy ? 'Starting…' : 'Start Game'}
+        </PrimaryButton>
+      ) : (
+        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontStyle: 'italic' }}>
+          Waiting for host to start…
+        </div>
+      )}
+      <SecondaryButton onClick={onLeave} disabled={busy}>
+        Leave lobby
+      </SecondaryButton>
+    </div>
+  );
+}
+
+function ErrorScreen({ message, onBack }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+      <ErrorBanner message={message || 'Something went wrong.'} />
+      <PrimaryButton onClick={onBack}>Back to title</PrimaryButton>
     </div>
   );
 }

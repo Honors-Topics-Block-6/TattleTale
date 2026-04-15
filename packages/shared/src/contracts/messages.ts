@@ -85,7 +85,14 @@ export interface ClientMessage<T extends ClientMessageType = ClientMessageType> 
 
 // ─── Server Message Types ────────────────────────────────────
 
-export type ServerMessageType = 'ack' | 'lobbyState' | 'sessionState' | 'error' | 'kicked';
+export type ServerMessageType =
+  | 'ack'
+  | 'lobbyState'
+  | 'sessionState'
+  | 'channelMessage'
+  | 'playerEliminated'
+  | 'error'
+  | 'kicked';
 
 export interface ServerMessage<T extends ServerMessageType = ServerMessageType> {
   type: T;

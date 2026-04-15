@@ -2,8 +2,12 @@ import {
   IntentType,
   Phase,
   SessionStatus,
+  SystemEventType,
   Team,
+  type SystemEventMetadata,
 } from '@tattletale/shared';
+
+import { SystemEventMetadataBuilders } from './system-events.js';
 
 import type { LobbySettings, LobbyState } from '../lobby/types.js';
 import type {
@@ -14,6 +18,7 @@ import type {
 } from './types.js';
 
 // Temporary default split from TechSpec v1; treat as tunable during playtesting.
+const SYSTEM_EVENT_CAP = 50;
 const DAY_PHASE_WEIGHTS = [70, 20, 10] as const;
 const NIGHT_PHASE_WEIGHTS = [75, 15, 10] as const;
 const ABSTAIN_VOTE_KEY = '__ABSTAIN__';
@@ -28,7 +33,7 @@ export interface RuntimePhaseAdvancedEvent {
 export interface RuntimePlayerEliminatedEvent {
   type: 'PLAYER_ELIMINATED';
   playerId: string;
-  reason: 'DAY_VOTE' | 'PLAYER_LEFT' | 'PLAYER_KICKED';
+  reason: 'DAY_VOTE' | 'NIGHT_KILL' | 'PLAYER_LEFT' | 'PLAYER_KICKED';
   at: string;
 }
 
@@ -43,6 +48,16 @@ export type RuntimeEvent =
   | RuntimePhaseAdvancedEvent
   | RuntimePlayerEliminatedEvent
   | RuntimeGameEndedEvent;
+
+type EliminationResolution = {
+  kind: 'ELIMINATE';
+  targetPlayerId: string;
+  targetDisplayName: string;
+  reason: 'DAY_VOTE' | 'NIGHT_KILL';
+} | {
+  kind: 'NONE';
+  reason: 'DAY_VOTE' | 'NIGHT_KILL';
+};
 
 export interface IntentAppendInput {
   playerId: string;
@@ -86,12 +101,19 @@ export function initializeSessionRuntime(
   random: () => number = Math.random,
 ): void {
   assignTeams(session, random);
+
+  // Populate hacker channel with assigned Team.HACKERS players.
+  if (session.channels.hacker) {
+    session.channels.hacker.members = Object.values(session.players)
+      .filter((p) => p.team === Team.HACKERS)
+      .map((p) => p.playerId);
+  }
+
   session.status = SessionStatus.ACTIVE;
   session.winnerTeam = null;
-  session.timers.currentPhaseEndsAt = addSeconds(
-    now,
-    calculatePhaseDurations(settings)[session.phase],
-  );
+  const durationSeconds = calculatePhaseDurations(settings)[session.phase];
+  session.timers.currentPhaseEndsAt = addSeconds(now, durationSeconds);
+  session.timers.currentPhaseDurationSeconds = durationSeconds;
   session.updatedAt = now;
 }
 
@@ -170,6 +192,62 @@ export function appendIntent(
   };
 }
 
+function resolveDayVote(session: GameState): EliminationResolution {
+  const targetId = resolveDayVoteEliminationTarget(session);
+  if (!targetId) return { kind: 'NONE', reason: 'DAY_VOTE' };
+  const name = session.players[targetId]?.displayName ?? '';
+  return { kind: 'ELIMINATE', targetPlayerId: targetId, targetDisplayName: name, reason: 'DAY_VOTE' };
+}
+
+function resolveNightKill(session: GameState): EliminationResolution {
+  const targetId = resolveHackerKillTarget(session);
+  if (!targetId) return { kind: 'NONE', reason: 'NIGHT_KILL' };
+  const name = session.players[targetId]?.displayName ?? '';
+  return { kind: 'ELIMINATE', targetPlayerId: targetId, targetDisplayName: name, reason: 'NIGHT_KILL' };
+}
+
+function applyEliminationOutcome(
+  session: GameState,
+  lobby: LobbyState,
+  resolution: EliminationResolution,
+  transitionAt: string,
+): RuntimeEvent[] {
+  const events: RuntimeEvent[] = [];
+
+  if (resolution.kind === 'NONE') {
+    if (resolution.reason === 'NIGHT_KILL') {
+      appendSystemEvent(session, SystemEventType.NO_KILL_TONIGHT, transitionAt,
+        SystemEventMetadataBuilders.noKillTonight());
+    }
+    return events;
+  }
+
+  const eliminated = eliminatePlayer(session, lobby, resolution.targetPlayerId, transitionAt);
+  if (!eliminated) return events;
+
+  events.push({
+    type: 'PLAYER_ELIMINATED',
+    playerId: resolution.targetPlayerId,
+    reason: resolution.reason,
+    at: transitionAt,
+  });
+
+  if (resolution.reason === 'DAY_VOTE') {
+    appendSystemEvent(session, SystemEventType.PLAYER_VOTED_OUT, transitionAt,
+      SystemEventMetadataBuilders.playerVotedOut(resolution.targetPlayerId, resolution.targetDisplayName));
+  } else {
+    appendSystemEvent(session, SystemEventType.PLAYER_KILLED_AT_NIGHT, transitionAt,
+      SystemEventMetadataBuilders.playerKilledAtNight(resolution.targetPlayerId, resolution.targetDisplayName));
+  }
+
+  const winnerTeam = applyWinState(session, transitionAt);
+  if (winnerTeam) {
+    events.push({ type: 'GAME_ENDED', winnerTeam, status: session.status, at: transitionAt });
+  }
+
+  return events;
+}
+
 export function reconcileSessionRuntime(
   session: GameState,
   lobby: LobbyState,
@@ -192,29 +270,13 @@ export function reconcileSessionRuntime(
   const previousCycle = session.cycle;
 
   if (previousPhase === Phase.DAY_VOTE) {
-    const eliminationTarget = resolveDayVoteEliminationTarget(session);
+    const resolution = resolveDayVote(session);
     clearCycleIntents(session, previousCycle, IntentType.SUBMIT_VOTE);
-
-    if (eliminationTarget && eliminatePlayer(session, lobby, eliminationTarget, transitionAt)) {
-      events.push({
-        type: 'PLAYER_ELIMINATED',
-        playerId: eliminationTarget,
-        reason: 'DAY_VOTE',
-        at: transitionAt,
-      });
-
-      const winnerTeam = applyWinState(session, transitionAt);
-      if (winnerTeam) {
-        events.push({
-          type: 'GAME_ENDED',
-          winnerTeam,
-          status: session.status,
-          at: transitionAt,
-        });
-      }
-    }
+    events.push(...applyEliminationOutcome(session, lobby, resolution, transitionAt));
   } else if (previousPhase === Phase.NIGHT_ACTIONS) {
+    const resolution = resolveNightKill(session);
     clearCycleIntents(session, previousCycle, IntentType.SUBMIT_NIGHT_ACTION);
+    events.push(...applyEliminationOutcome(session, lobby, resolution, transitionAt));
   }
 
   if (session.status !== SessionStatus.ACTIVE) {
@@ -224,10 +286,9 @@ export function reconcileSessionRuntime(
   const next = nextPhase(previousPhase, previousCycle);
   session.phase = next.phase;
   session.cycle = next.cycle;
-  session.timers.currentPhaseEndsAt = addSeconds(
-    transitionAt,
-    calculatePhaseDurations(settings)[session.phase],
-  );
+  const nextDurationSeconds = calculatePhaseDurations(settings)[session.phase];
+  session.timers.currentPhaseEndsAt = addSeconds(transitionAt, nextDurationSeconds);
+  session.timers.currentPhaseDurationSeconds = nextDurationSeconds;
   session.updatedAt = transitionAt;
 
   events.push({
@@ -332,6 +393,23 @@ function assignTeams(
   }
 }
 
+function appendSystemEvent(
+  session: GameState,
+  type: SystemEventType,
+  now: string,
+  metadata: SystemEventMetadata,
+): void {
+  session.systemEvents.push({
+    id: crypto.randomUUID(),
+    type,
+    createdAt: now,
+    metadata,
+  });
+  if (session.systemEvents.length > SYSTEM_EVENT_CAP) {
+    session.systemEvents.splice(0, session.systemEvents.length - SYSTEM_EVENT_CAP);
+  }
+}
+
 function clearCycleIntents(
   session: GameState,
   cycle: number,
@@ -388,6 +466,61 @@ function resolveDayVoteEliminationTarget(session: GameState): string | null {
   }
 
   return winner;
+}
+
+function resolveHackerKillTarget(session: GameState): string | null {
+  const livingHackers = Object.values(session.players)
+    .filter((p) => p.alive && p.team === Team.HACKERS);
+
+  if (livingHackers.length === 0) {
+    return null;
+  }
+  const livingHackerIds = new Set(livingHackers.map((p) => p.playerId));
+
+  const latestPerHacker = new Map<string, { targetPlayerId: string | null; createdAt: string }>();
+  for (const intent of session.pendingIntents) {
+    if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+    if (intent.cycle !== session.cycle) continue;
+    if (!livingHackerIds.has(intent.playerId)) continue;
+    const payload = intent.payload as NightActionIntentPayload;
+    if (payload.actionType !== 'HACKER_KILL') continue;
+
+    const existing = latestPerHacker.get(intent.playerId);
+    if (!existing || intent.createdAt > existing.createdAt) {
+      latestPerHacker.set(intent.playerId, {
+        targetPlayerId: payload.targetPlayerId ?? null,
+        createdAt: intent.createdAt,
+      });
+    }
+  }
+
+  const tally = new Map<string, number>();
+  for (const hackerId of livingHackerIds) {
+    const submitted = latestPerHacker.get(hackerId);
+    const target = submitted?.targetPlayerId ?? null;
+    const targetPlayer = target ? session.players[target] : undefined;
+    const valid =
+      target !== null
+      && target !== hackerId
+      && targetPlayer !== undefined
+      && targetPlayer.alive
+      && targetPlayer.team !== Team.HACKERS;
+    const key = valid ? target! : ABSTAIN_VOTE_KEY;
+    tally.set(key, (tally.get(key) ?? 0) + 1);
+  }
+
+  let highest = -1;
+  let leaders: string[] = [];
+  for (const [k, v] of tally) {
+    if (v > highest) { highest = v; leaders = [k]; }
+    else if (v === highest) { leaders.push(k); }
+  }
+  if (leaders.length !== 1) return null;
+  return leaders[0] === ABSTAIN_VOTE_KEY ? null : leaders[0];
+}
+
+export function resolveHackerKillTargetForTest(session: GameState): string | null {
+  return resolveHackerKillTarget(session);
 }
 
 function eliminatePlayer(

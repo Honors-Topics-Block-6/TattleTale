@@ -1,4 +1,4 @@
-import { IntentType, LobbyStatus, Phase, SessionStatus, Team } from '@tattletale/shared';
+import { IntentType, LobbyStatus, Phase, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { LobbyState } from '../lobby/types.js';
@@ -9,6 +9,7 @@ import {
   initializeSessionRuntime,
   processElimination,
   reconcileSessionRuntime,
+  resolveHackerKillTargetForTest,
 } from './runtime-domain.js';
 import { buildSessionFromLobby } from './session-domain.js';
 
@@ -267,5 +268,392 @@ describe('runtime-domain', () => {
     );
     expect(nightActions).toHaveLength(1);
     expect((nightActions[0].payload as { targetPlayerId: string | null }).targetPlayerId).toBe('p3');
+  });
+
+  it('initializeSessionRuntime: hacker channel populated, capped event log, GAME_STARTED carries typed metadata', () => {
+    const lobby = buildLobby(5);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+
+    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=5).
+    expect(session.channels.hacker).toBeDefined();
+    expect(session.channels.hacker.type).toBe('HACKER');
+    const hackerIds = Object.values(session.players)
+      .filter((p) => p.team === Team.HACKERS)
+      .map((p) => p.playerId)
+      .sort();
+    expect(session.channels.hacker.members.sort()).toEqual(hackerIds);
+    expect(hackerIds).toHaveLength(2);
+
+    // GAME_STARTED appended once with typed metadata.
+    const started = session.systemEvents.find((e) => e.type === SystemEventType.GAME_STARTED);
+    expect(started?.metadata).toEqual({ type: 'GAME_STARTED' });
+  });
+
+  it('DAY_VOTE → DAY_RESOLVE appends PLAYER_VOTED_OUT system event with target metadata', () => {
+    const lobby = buildLobby(5);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+
+    const voters = ['p1', 'p2', 'p4', 'p5'];
+    for (const voterId of voters) {
+      appendIntent(session, {
+        playerId: voterId,
+        type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: 'p3' },
+        phase: Phase.DAY_VOTE,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const events = reconcileSessionRuntime(
+      session,
+      lobby,
+      DEFAULT_LOBBY_SETTINGS,
+      '2026-03-17T00:00:31.000Z',
+    );
+
+    const elimEvent = events.find((e) => e.type === 'PLAYER_ELIMINATED');
+    expect(elimEvent).toBeDefined();
+
+    const sysEvent = session.systemEvents.find(
+      (e) => e.type === SystemEventType.PLAYER_VOTED_OUT,
+    );
+    expect(sysEvent).toBeDefined();
+    expect(sysEvent?.metadata).toEqual({
+      type: 'PLAYER_VOTED_OUT',
+      targetPlayerId: 'p3',
+      targetDisplayName: 'Player 3',
+    });
+  });
+
+  describe('resolveHackerKillTarget', () => {
+    function setupNightSession() {
+      const lobby = buildLobby(5);
+      const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+      initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+      session.phase = Phase.NIGHT_ACTIONS;
+      return { lobby, session };
+    }
+
+    function submitKill(session: ReturnType<typeof setupNightSession>['session'], hackerId: string, targetId: string | null) {
+      appendIntent(session, {
+        playerId: hackerId,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: targetId, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    function hackersOf(session: ReturnType<typeof setupNightSession>['session']): string[] {
+      return Object.values(session.players)
+        .filter((p) => p.team === Team.HACKERS)
+        .map((p) => p.playerId);
+    }
+
+    function friendsOf(session: ReturnType<typeof setupNightSession>['session']): string[] {
+      return Object.values(session.players)
+        .filter((p) => p.team === Team.FRIENDS)
+        .map((p) => p.playerId);
+    }
+
+    it('returns the plurality winner when Hackers agree', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('returns null on tie between two Hackers', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('returns null when all Hackers abstain (no submissions)', () => {
+      const { session } = setupNightSession();
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('treats a target that is already dead at resolution as abstain', () => {
+      const { session, lobby } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      processElimination(session, lobby, f1, '2026-03-17T00:00:20.000Z', 'PLAYER_LEFT');
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('rejects a target that is a Hacker (treats as abstain)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      submitKill(session, h1, h2);
+      submitKill(session, h2, h2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('rejects self-target (treats as abstain)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      submitKill(session, h1, h1);
+      submitKill(session, h2, h2);
+      expect(resolveHackerKillTargetForTest(session)).toBeNull();
+    });
+
+    it('awards a lone Hacker the kill when they submit a valid target', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      session.players[h2].alive = false;
+      submitKill(session, h1, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('uses the latest intent per hacker when multiple HACKER_KILL intents exist for the same cycle', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:05.000Z',
+      });
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f2);
+    });
+
+    it('ignores SUBMIT_NIGHT_ACTION intents from non-Hackers in pendingIntents (defensive)', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: f1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle,
+        createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      submitKill(session, h1, f2);
+      submitKill(session, h2, f2);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f2);
+    });
+
+    it('ignores intents from previous cycles', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.pendingIntents.push({
+        id: crypto.randomUUID(),
+        playerId: h1,
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: session.cycle - 1,
+        createdAt: '2026-03-17T00:00:05.000Z',
+      });
+      submitKill(session, h1, f1);
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+  });
+
+  describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
+    function toNightActions(now: string) {
+      const lobby = buildLobby(5);
+      const session = buildSessionFromLobby(lobby, 'game-1', now);
+      initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
+      session.phase = Phase.NIGHT_ACTIONS;
+      session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      return { lobby, session };
+    }
+
+    it('applies the plurality kill, emits PLAYER_ELIMINATED with reason NIGHT_KILL, and appends PLAYER_KILLED_AT_NIGHT', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!.playerId;
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h,
+          type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS,
+          cycle: session.cycle,
+          createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const elim = events.find((e) => e.type === 'PLAYER_ELIMINATED');
+      expect(elim).toBeDefined();
+      if (elim && elim.type === 'PLAYER_ELIMINATED') {
+        expect(elim.reason).toBe('NIGHT_KILL');
+        expect(elim.playerId).toBe(friend);
+      }
+      expect(session.players[friend].alive).toBe(false);
+      const sysEvent = session.systemEvents.find((e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT);
+      expect(sysEvent).toBeDefined();
+      expect(sysEvent?.metadata).toEqual({
+        type: 'PLAYER_KILLED_AT_NIGHT',
+        targetPlayerId: friend,
+        targetDisplayName: session.players[friend]?.displayName ?? expect.any(String),
+      });
+    });
+
+    it('appends NO_KILL_TONIGHT when Hackers tie', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const [h1, h2] = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[0], metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      appendIntent(session, {
+        playerId: h2, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(events.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeUndefined();
+      const sysEvent = session.systemEvents.find((e) => e.type === SystemEventType.NO_KILL_TONIGHT);
+      expect(sysEvent).toBeDefined();
+      expect(sysEvent?.metadata).toEqual({ type: 'NO_KILL_TONIGHT' });
+    });
+
+    it('triggers GAME_ENDED when the night kill reaches the win threshold', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
+      session.players[friends[0]].alive = false;
+
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(session.status).toBe(SessionStatus.HACKERS_WIN);
+      expect(events.find((e) => e.type === 'GAME_ENDED')).toBeDefined();
+    });
+
+    it('does not append PLAYER_KILLED_AT_NIGHT when no Hackers are alive', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      Object.values(session.players)
+        .filter((p) => p.team === Team.HACKERS)
+        .forEach((p) => { p.alive = false; });
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      expect(events.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeUndefined();
+    });
+
+    it('uses the metadata builder so PLAYER_KILLED_AT_NIGHT entries match the typed schema', () => {
+      const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
+      const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+      const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!;
+      for (const h of hackers) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend.playerId, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+      const evt = session.systemEvents.find((e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT);
+      expect(evt?.metadata).toEqual({
+        type: 'PLAYER_KILLED_AT_NIGHT',
+        targetPlayerId: friend.playerId,
+        targetDisplayName: friend.displayName,
+      });
+    });
+  });
+
+  it('replayed reconciliation at the same now does not double-append events', () => {
+    const now0 = '2026-03-17T00:00:00.000Z';
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', now0);
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now0, () => 0);
+
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+    const voters = Object.values(session.players).map((p) => p.playerId);
+    for (const v of voters.slice(0, 4)) {
+      appendIntent(session, {
+        playerId: v, type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: voters[4] }, phase: Phase.DAY_VOTE,
+        cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const transitionNow = '2026-03-17T00:00:31.000Z';
+    const events1 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, transitionNow);
+    const events2 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, transitionNow);
+
+    expect(events1.some((e) => e.type === 'PHASE_ADVANCED')).toBe(true);
+    expect(events1.some((e) => e.type === 'PLAYER_ELIMINATED')).toBe(true);
+    expect(events2).toHaveLength(0);
+
+    const votedOutEvents = session.systemEvents.filter(
+      (e) => e.type === SystemEventType.PLAYER_VOTED_OUT,
+    );
+    expect(votedOutEvents).toHaveLength(1);
+  });
+
+  it('triple invocation across a phase boundary still produces exactly one elimination + one system event', () => {
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+    session.phase = Phase.DAY_VOTE;
+    session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+    const voters = Object.values(session.players).map((p) => p.playerId);
+    for (const v of voters.slice(0, 4)) {
+      appendIntent(session, {
+        playerId: v, type: IntentType.SUBMIT_VOTE,
+        payload: { targetPlayerId: voters[4] }, phase: Phase.DAY_VOTE,
+        cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+    }
+
+    const e1 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:29.000Z');
+    const e2 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+    const e3 = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+    expect(e1).toHaveLength(0);
+    expect(e2.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeDefined();
+    expect(e3).toHaveLength(0);
+
+    const sysEvents = session.systemEvents.filter((e) => e.type === SystemEventType.PLAYER_VOTED_OUT);
+    expect(sysEvents).toHaveLength(1);
   });
 });

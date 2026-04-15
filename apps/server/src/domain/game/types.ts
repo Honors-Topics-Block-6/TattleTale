@@ -3,6 +3,7 @@ import type {
   IntentType,
   Phase,
   SessionStatus,
+  SystemEventMetadata,
   SystemEventType,
   Team,
 } from '@tattletale/shared';
@@ -49,10 +50,12 @@ export interface SystemEventState {
   id: string;
   type: SystemEventType;
   createdAt: string;
+  metadata: SystemEventMetadata;
 }
 
 export interface GameTimersState {
   currentPhaseEndsAt: string | null;
+  currentPhaseDurationSeconds: number;
 }
 
 export interface GameState {

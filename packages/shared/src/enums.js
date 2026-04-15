@@ -14,6 +14,7 @@ export var ChannelType;
     ChannelType["ROLE"] = "ROLE";
     ChannelType["TEMP"] = "TEMP";
     ChannelType["SYSTEM"] = "SYSTEM";
+    ChannelType["HACKER"] = "HACKER";
 })(ChannelType || (ChannelType = {}));
 export var IntentType;
 (function (IntentType) {
@@ -29,6 +30,9 @@ export var SystemEventType;
     SystemEventType["TEMP_CHANNEL_CREATED"] = "TEMP_CHANNEL_CREATED";
     SystemEventType["PSYCHIC_SIGNAL_RECEIVED"] = "PSYCHIC_SIGNAL_RECEIVED";
     SystemEventType["GAME_STARTED"] = "GAME_STARTED";
+    SystemEventType["PLAYER_VOTED_OUT"] = "PLAYER_VOTED_OUT";
+    SystemEventType["PLAYER_KILLED_AT_NIGHT"] = "PLAYER_KILLED_AT_NIGHT";
+    SystemEventType["NO_KILL_TONIGHT"] = "NO_KILL_TONIGHT";
 })(SystemEventType || (SystemEventType = {}));
 export var LobbyStatus;
 (function (LobbyStatus) {
@@ -36,4 +40,15 @@ export var LobbyStatus;
     LobbyStatus["IN_GAME"] = "IN_GAME";
     LobbyStatus["CLOSED"] = "CLOSED";
 })(LobbyStatus || (LobbyStatus = {}));
+export var Team;
+(function (Team) {
+    Team["FRIENDS"] = "FRIENDS";
+    Team["HACKERS"] = "HACKERS";
+})(Team || (Team = {}));
+export var SessionStatus;
+(function (SessionStatus) {
+    SessionStatus["ACTIVE"] = "ACTIVE";
+    SessionStatus["FRIENDS_WIN"] = "FRIENDS_WIN";
+    SessionStatus["HACKERS_WIN"] = "HACKERS_WIN";
+})(SessionStatus || (SessionStatus = {}));
 //# sourceMappingURL=enums.js.map

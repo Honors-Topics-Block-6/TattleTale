@@ -1,8 +1,10 @@
 import {
   IntentType,
   LobbyStatus,
+  Phase,
   SessionStatus,
   SystemEventType,
+  Team,
   type JoinLobbyPayload,
   type KickPlayerPayload,
   type RejoinLobbyPayload,
@@ -47,6 +49,24 @@ export interface HandlerContext {
   setPlayerIdForWs(ws: WebSocket, playerId: string): void;
   broadcastLobbyState(lobby: LobbyState): void;
   broadcastSessionState(session: GameState): void;
+  broadcastChannelMessage(
+    channelId: string,
+    message: {
+      id: string;
+      senderId: string;
+      senderName: string;
+      content: string;
+      timestamp: string;
+      cycle: number;
+    },
+    recipientPlayerIds: string[],
+  ): void;
+  broadcastPlayerEliminated(
+    playerId: string,
+    cause: 'VOTED_OUT' | 'NIGHT_KILL' | 'PLAYER_LEFT' | 'PLAYER_KICKED',
+    cycle: number,
+    recipientPlayerIds: string[],
+  ): void;
   closeWsForPlayer(playerId: string, code: number, reason: string): void;
   setPhaseAlarm(deadlineMs: number, phase: string, cycle: number): Promise<void>;
   clearPhaseAlarm(): Promise<void>;
@@ -401,6 +421,13 @@ export async function handleKickPlayer(
       session.players[payload.targetPlayerId].connected = false;
     }
 
+    ctx.broadcastPlayerEliminated(
+      payload.targetPlayerId,
+      'PLAYER_KICKED',
+      session.cycle,
+      Object.keys(session.players),
+    );
+
     if (target.isHost) {
       const candidates = lobby.players.filter((p) => p.playerId !== payload.targetPlayerId);
       assignHost(lobby, selectNextHost(candidates));
@@ -565,9 +592,64 @@ export async function handleSubmitIntent(
 
     const { intent } = payload;
 
-    // SEND_MESSAGE is not yet implemented
+    // SEND_MESSAGE: broadcast a chat message to the channel's members.
+    // Messages are transient — we do not persist them in GameState.
     if (intent.type === IntentType.SEND_MESSAGE) {
-      return fail('NOT_IMPLEMENTED', 'SEND_MESSAGE not yet implemented');
+      const messagePayload = intent.payload as { channelId: string; content: string };
+      const channel = session.channels[messagePayload.channelId];
+      if (!channel) {
+        return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
+      }
+      // Defense-in-depth: HACKER channels require sender to be a living Hacker,
+      // regardless of channel membership state.
+      if (channel.type === 'HACKER') {
+        const sender = session.players[actorId];
+        if (!sender || sender.team !== Team.HACKERS || !sender.alive) {
+          return fail('NOT_IN_CHANNEL', 'You are not authorized for this channel.');
+        }
+      }
+      if (!channel.members.includes(actorId)) {
+        return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
+      }
+      if (channel.locked) {
+        return fail('CHANNEL_LOCKED', 'This channel is locked.');
+      }
+
+      const trimmed = messagePayload.content.trim();
+      if (!trimmed) {
+        return fail('EMPTY_MESSAGE', 'Message content cannot be empty.');
+      }
+      if (trimmed.length > 500) {
+        return fail('MESSAGE_TOO_LONG', 'Message exceeds 500 characters.');
+      }
+
+      const now = new Date().toISOString();
+      const message = {
+        id: generateId(),
+        senderId: actorId,
+        senderName: session.players[actorId].displayName,
+        content: trimmed,
+        timestamp: now,
+        cycle: session.cycle,
+      };
+
+      // Defense-in-depth: for HACKER channels, filter recipients by team+alive
+      // even if channel.members is somehow wrong.
+      let recipients = channel.members;
+      if (channel.type === 'HACKER') {
+        recipients = recipients.filter((id) => {
+          const p = session.players[id];
+          return Boolean(p?.alive && p.team === Team.HACKERS);
+        });
+      }
+
+      ctx.broadcastChannelMessage(
+        messagePayload.channelId,
+        message,
+        recipients,
+      );
+
+      return ok({ messageId: message.id });
     }
 
     if (
@@ -592,6 +674,44 @@ export async function handleSubmitIntent(
         if (!target || !target.alive) {
           return fail('INVALID_VOTE_TARGET', 'Vote target must be an alive player.');
         }
+      }
+    }
+
+    // Validate SUBMIT_NIGHT_ACTION payload
+    if (intent.type === IntentType.SUBMIT_NIGHT_ACTION) {
+      const nightPayload = intent.payload as NightActionIntentPayload;
+
+      // Validate payload shape
+      if (
+        typeof nightPayload?.actionType !== 'string'
+        || (nightPayload.targetPlayerId !== null && typeof nightPayload.targetPlayerId !== 'string')
+      ) {
+        return fail('INVALID_PAYLOAD', 'Night action payload is malformed.');
+      }
+
+      // Only HACKER_KILL is supported in MVP
+      if (nightPayload.actionType !== 'HACKER_KILL') {
+        return fail('UNSUPPORTED_ACTION', 'Only HACKER_KILL is supported.');
+      }
+
+      // Sender must be a living Hacker
+      const sender = session.players[actorId];
+      if (!sender || !sender.alive || sender.team !== Team.HACKERS) {
+        return fail('NOT_AUTHORIZED', 'Only living Hackers can submit night kill actions.');
+      }
+
+      // Target must be a living non-Hacker who is not the sender
+      const nightTarget = nightPayload.targetPlayerId
+        ? session.players[nightPayload.targetPlayerId]
+        : undefined;
+      if (
+        !nightPayload.targetPlayerId
+        || nightPayload.targetPlayerId === actorId
+        || !nightTarget
+        || !nightTarget.alive
+        || nightTarget.team === Team.HACKERS
+      ) {
+        return fail('INVALID_TARGET', 'Target must be a living non-Hacker player.');
       }
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -7,6 +7,10 @@ import StartMenu from './components/StartMenu/StartMenu';
 import ContextMenu from './components/ContextMenu/ContextMenu';
 import Window from './components/Window/Window';
 import SideTaskModal from './components/SideTaskModal';
+import useGameStore from '../stores/gameStore';
+import useThemeEffect from '../hooks/useThemeEffect';
+import EliminationSequence from '../components/EliminationSequence/index';
+import WinScreen from '../components/WinScreen/index';
 
 import '../themes/xp/index.css';
 
@@ -69,11 +73,67 @@ const ATTENTION_TASKS = [
   },
 ];
 
-export default function OS({ wallpaper = defaultWallpaper }) {
+export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
   const windows = useWindowStore((state) => state.windows);
   const createWindow = useWindowStore((state) => state.createWindow);
 
   const windowList = Object.values(windows);
+
+  // Auto-open TattleStation when the OS mounts — it's the main game window
+  // and has no desktop/start-menu entry, so the user can't open it manually.
+  // Guard against StrictMode double-invocation and user re-opens.
+  useEffect(() => {
+    const existing = Object.values(useWindowStore.getState().windows).some(
+      (w) => w.appId === 'tattle-station',
+    );
+    if (existing) return;
+    const appConfig = getAppConfig('tattle-station');
+    if (appConfig) createWindow('tattle-station', appConfig);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-open HackerTerminal for living Hackers once the hacker channel is visible.
+  const myTeam = useGameStore((s) => s.myTeam);
+  const hackerChannelPresent = useGameStore((s) =>
+    Object.values(s.channels || {}).some((c) => c.type === 'HACKER')
+  );
+  const [hackerWindowOpened, setHackerWindowOpened] = useState(false);
+
+  useEffect(() => {
+    if (hackerWindowOpened) return;
+    if (myTeam !== 'HACKERS') return;
+    if (!hackerChannelPresent) return;
+    const existing = Object.values(useWindowStore.getState().windows).some(
+      (w) => w.appId === 'hacker-terminal',
+    );
+    if (existing) {
+      setHackerWindowOpened(true);
+      return;
+    }
+    const appConfig = getAppConfig('hacker-terminal');
+    if (appConfig) {
+      createWindow('hacker-terminal', appConfig);
+      setHackerWindowOpened(true);
+    }
+  }, [myTeam, hackerChannelPresent, hackerWindowOpened, createWindow]);
+
+  // Game state hooks
+  useThemeEffect();
+  const eliminationCause = useGameStore((s) => s.eliminationCause);
+  const eliminationCycle = useGameStore((s) => s.eliminationCycle);
+  const selfAlive = useGameStore((s) => s.selfAlive);
+  const status = useGameStore((s) => s.status);
+  const [eliminationPlayed, setEliminationPlayed] = useState(null);
+
+  const showElimination =
+    eliminationCause !== null &&
+    !selfAlive &&
+    eliminationCycle !== null &&
+    eliminationPlayed !== eliminationCycle;
+
+  const handleEliminationComplete = useCallback(() => {
+    setEliminationPlayed(eliminationCycle);
+  }, [eliminationCycle]);
 
   // Side tasks: typing + attention-check + open-2048
   const [sideTask, setSideTask] = useState(null);
@@ -220,6 +280,17 @@ export default function OS({ wallpaper = defaultWallpaper }) {
           onSubmit={handleSideTaskSubmit}
           onDismiss={handleSideTaskDismiss}
         />
+      )}
+
+      {showElimination && (
+        <EliminationSequence
+          cause={eliminationCause}
+          onComplete={handleEliminationComplete}
+        />
+      )}
+
+      {(status === 'FRIENDS_WIN' || status === 'HACKERS_WIN') && (
+        <WinScreen onReturnToLobby={onReturnToLobby} />
       )}
     </div>
   );
