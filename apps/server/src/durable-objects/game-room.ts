@@ -16,6 +16,7 @@ import {
   handleKickPlayer,
   handleStartGame,
   handleSubmitIntent,
+  handleUpdateSettings,
   persistRuntimeEvents,
   generateToken,
   selectNextHost,
@@ -176,6 +177,9 @@ export class GameRoomDO implements DurableObject {
         break;
       case 'submitIntent':
         result = await handleSubmitIntent(ctx, ws, payload as any);
+        break;
+      case 'updateSettings':
+        result = await handleUpdateSettings(ctx, ws, payload as any);
         break;
       default:
         result = { ok: false, code: 'UNKNOWN_TYPE', message: `Unknown type: ${type}` };

@@ -88,12 +88,21 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     currentPhaseEndsAt: session.timers.currentPhaseEndsAt,
     phaseDurationSeconds: session.timers.currentPhaseDurationSeconds,
     voteTally: voteTallyHasAny ? voteTally : null,
-    players: Object.values(session.players).map((p) => ({
-      playerId: p.playerId,
-      displayName: p.displayName,
-      alive: p.alive,
-      connected: p.connected,
-    })),
+    players: Object.values(session.players).map((p) => {
+      const base = {
+        playerId: p.playerId,
+        displayName: p.displayName,
+        alive: p.alive,
+        connected: p.connected,
+      };
+
+      // Hackers see their teammates' roles and team
+      if (player?.team === Team.HACKERS && p.team === Team.HACKERS) {
+        return { ...base, role: p.roleId ?? undefined, team: p.team };
+      }
+
+      return base;
+    }),
     channels: Object.values(session.channels)
       .filter((ch) => ch.members.includes(playerId))
       .map((ch) => ({ id: ch.id, type: ch.type, members: [...ch.members], locked: ch.locked, expiresAt: ch.expiresAt })),

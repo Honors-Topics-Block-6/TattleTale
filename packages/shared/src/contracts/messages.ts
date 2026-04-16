@@ -9,6 +9,7 @@ export const ClientMessageTypes = [
   'kickPlayer',
   'startGame',
   'submitIntent',
+  'updateSettings',
 ] as const;
 
 export type ClientMessageType = (typeof ClientMessageTypes)[number];
@@ -61,12 +62,24 @@ export const SubmitIntentPayloadSchema = z.object({
 });
 export type SubmitIntentPayload = z.infer<typeof SubmitIntentPayloadSchema>;
 
+export const UpdateSettingsPayloadSchema = z.object({
+  settings: z.object({
+    minPlayers: z.number().int().min(1).max(50).optional(),
+    maxPlayers: z.number().int().min(1).max(50).optional(),
+    dayDurationSeconds: z.number().int().min(30).max(600).optional(),
+    nightDurationSeconds: z.number().int().min(15).max(300).optional(),
+    enabledRoles: z.array(z.string()).optional(),
+  }),
+});
+export type UpdateSettingsPayload = z.infer<typeof UpdateSettingsPayloadSchema>;
+
 export const ClientPayloadSchemas = {
   joinLobby: JoinLobbyPayloadSchema,
   rejoinLobby: RejoinLobbyPayloadSchema,
   kickPlayer: KickPlayerPayloadSchema,
   startGame: StartGamePayloadSchema,
   submitIntent: SubmitIntentPayloadSchema,
+  updateSettings: UpdateSettingsPayloadSchema,
 } as const;
 
 // ─── Client Message Envelope ─────────────────────────────────

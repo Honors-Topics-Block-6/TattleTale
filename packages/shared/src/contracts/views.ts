@@ -13,6 +13,7 @@ export interface LobbySettingsView {
   maxPlayers: number;
   dayDurationSeconds: number;
   nightDurationSeconds: number;
+  enabledRoles: string[];
 }
 
 export interface LobbyPlayerView {

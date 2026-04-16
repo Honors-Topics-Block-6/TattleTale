@@ -9,6 +9,7 @@ import {
   type KickPlayerPayload,
   type RejoinLobbyPayload,
   type SubmitIntentPayload,
+  type UpdateSettingsPayload,
 } from '@tattletale/shared';
 
 import { DomainError } from '../domain/errors.js';
@@ -523,7 +524,7 @@ export async function handleStartGame(
           displayName: p.displayName,
           alive: p.alive,
           isHost: p.isHost,
-          roleId: null,
+          roleId: session.players[p.playerId]?.roleId ?? null,
           team: session.players[p.playerId]?.team ?? 'UNKNOWN',
         })),
       });
@@ -552,6 +553,43 @@ export async function handleStartGame(
     if (error instanceof DomainError) {
       return fail(error.code, error.message);
     }
+    return fail('INTERNAL_ERROR', 'An unexpected error occurred.');
+  }
+}
+
+export async function handleUpdateSettings(
+  ctx: HandlerContext,
+  ws: WebSocket,
+  payload: UpdateSettingsPayload,
+): Promise<HandlerResult> {
+  try {
+    const actorId = requirePlayerId(ctx, ws);
+    const lobby = requireLobby(await ctx.repo.getLobby());
+    const { player: actor } = requirePlayerInLobby(lobby, actorId);
+
+    if (!actor.isHost) {
+      return fail('NOT_HOST', 'Only the host can update settings.');
+    }
+
+    if (lobby.status !== LobbyStatus.WAITING) {
+      return fail('GAME_IN_PROGRESS', 'Cannot update settings after the game has started.');
+    }
+
+    const updates = payload.settings;
+    if (updates.minPlayers !== undefined) lobby.settings.minPlayers = updates.minPlayers;
+    if (updates.maxPlayers !== undefined) lobby.settings.maxPlayers = updates.maxPlayers;
+    if (updates.dayDurationSeconds !== undefined) lobby.settings.dayDurationSeconds = updates.dayDurationSeconds;
+    if (updates.nightDurationSeconds !== undefined) lobby.settings.nightDurationSeconds = updates.nightDurationSeconds;
+    if (updates.enabledRoles !== undefined) lobby.settings.enabledRoles = updates.enabledRoles;
+
+    lobby.updatedAt = new Date().toISOString();
+
+    await ctx.repo.saveLobby(lobby);
+    ctx.broadcastLobbyState(lobby);
+
+    return ok({ lobby: toLobbyView(lobby) });
+  } catch (err) {
+    if (err instanceof DomainError) return fail(err.code, err.message);
     return fail('INTERNAL_ERROR', 'An unexpected error occurred.');
   }
 }

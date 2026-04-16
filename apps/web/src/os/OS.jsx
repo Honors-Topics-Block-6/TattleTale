@@ -10,6 +10,7 @@ import SideTaskModal from './components/SideTaskModal';
 import useGameStore from '../stores/gameStore';
 import useThemeEffect from '../hooks/useThemeEffect';
 import EliminationSequence from '../components/EliminationSequence/index';
+import RoleReveal from '../components/RoleReveal/index';
 import WinScreen from '../components/WinScreen/index';
 
 import '../themes/xp/index.css';
@@ -124,6 +125,27 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
   const selfAlive = useGameStore((s) => s.selfAlive);
   const status = useGameStore((s) => s.status);
   const [eliminationPlayed, setEliminationPlayed] = useState(null);
+
+  // Role reveal at game start
+  const selfRole = useGameStore((s) => s.selfRole);
+  const selfTeam = useGameStore((s) => s.selfTeam);
+  const selfId = useGameStore((s) => s.selfId);
+  const players = useGameStore((s) => s.players);
+  const cycle = useGameStore((s) => s.cycle);
+  const [roleRevealDismissed, setRoleRevealDismissed] = useState(false);
+
+  const showRoleReveal =
+    cycle === 1 &&
+    selfRole &&
+    selfRole !== 'unknown' &&
+    !roleRevealDismissed;
+
+  const hackerTeammates = useMemo(() => {
+    if (selfTeam !== 'HACKERS' || !players) return [];
+    return Object.values(players).filter(
+      (p) => p.team === 'HACKERS' && p.playerId !== selfId
+    );
+  }, [selfTeam, players, selfId]);
 
   const showElimination =
     eliminationCause !== null &&
@@ -279,6 +301,15 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
           task={activeSideTask}
           onSubmit={handleSideTaskSubmit}
           onDismiss={handleSideTaskDismiss}
+        />
+      )}
+
+      {showRoleReveal && (
+        <RoleReveal
+          role={selfRole}
+          team={selfTeam}
+          teammates={hackerTeammates}
+          onDismiss={() => setRoleRevealDismissed(true)}
         />
       )}
 

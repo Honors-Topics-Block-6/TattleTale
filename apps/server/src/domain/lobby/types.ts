@@ -1,3 +1,4 @@
+import { RoleId } from '@tattletale/shared';
 import type { LobbyStatus } from '@tattletale/shared';
 
 export interface LobbySettings {
@@ -5,6 +6,7 @@ export interface LobbySettings {
   maxPlayers: number;
   dayDurationSeconds: number;
   nightDurationSeconds: number;
+  enabledRoles: string[];
 }
 
 export interface LobbyPlayerState {
@@ -34,4 +36,14 @@ export const DEFAULT_LOBBY_SETTINGS: LobbySettings = {
   maxPlayers: 20,
   dayDurationSeconds: 180,
   nightDurationSeconds: 60,
+  enabledRoles: [
+    RoleId.EXTROVERT,
+    RoleId.WHITE_HAT_HACKER,
+    RoleId.SECURITY_SPECIALIST,
+    RoleId.THE_BOSS,
+    RoleId.SIGNAL_JAMMER,
+    RoleId.EAVESDROPPER,
+    RoleId.TROLLER,
+    RoleId.IMITATOR,
+  ],
 };

@@ -77,6 +77,7 @@ describe('full game cycle with hacker night kill', () => {
         maxPlayers: 5,
         dayDurationSeconds: 3,
         nightDurationSeconds: 3,
+        enabledRoles: [],
       },
       sessionId: 'game-1',
       createdAt: '2026-03-17T00:00:00.000Z',

@@ -55,12 +55,40 @@ describe('toPlayerSessionView', () => {
     expect(viewP2.myTeam).toBe(Team.HACKERS);
   });
 
-  it('players array never includes role or team', () => {
+  it('friends do not see role or team on any player in the players array', () => {
     const view = toPlayerSessionView(makeGameState(), 'p1');
     for (const player of view.players) {
-      expect(player).not.toHaveProperty('roleId');
+      expect(player).not.toHaveProperty('role');
       expect(player).not.toHaveProperty('team');
     }
+  });
+
+  it('hackers see role and team on fellow hackers in the players array', () => {
+    const state = makeGameState({
+      players: {
+        p1: { playerId: 'p1', displayName: 'Alice', alive: true, connected: true, roleId: 'FRIEND', team: Team.FRIENDS, permissions: [] },
+        p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true, roleId: 'THE_BOSS', team: Team.HACKERS, permissions: [] },
+        p3: { playerId: 'p3', displayName: 'Carol', alive: true, connected: true, roleId: 'HACKER', team: Team.HACKERS, permissions: [] },
+      },
+      channels: {
+        global: { id: 'global', type: ChannelType.GLOBAL, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+        hacker: { id: 'hacker', type: ChannelType.HACKER, members: ['p2', 'p3'], locked: false, expiresAt: null },
+      },
+    });
+    const view = toPlayerSessionView(state, 'p2');
+
+    // Hacker sees roles on fellow hackers
+    const bob = view.players.find((p) => p.playerId === 'p2')!;
+    expect(bob.role).toBe('THE_BOSS');
+    expect(bob.team).toBe(Team.HACKERS);
+    const carol = view.players.find((p) => p.playerId === 'p3')!;
+    expect(carol.role).toBe('HACKER');
+    expect(carol.team).toBe(Team.HACKERS);
+
+    // Hacker does not see role on friends
+    const alice = view.players.find((p) => p.playerId === 'p1')!;
+    expect(alice).not.toHaveProperty('role');
+    expect(alice).not.toHaveProperty('team');
   });
 
   it('only includes own pending intent types', () => {
