@@ -1,6 +1,7 @@
 import useGameStore, { selectIsHacker } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
+import ChannelSidebar from './ChannelSidebar';
 import ChatPanel from './ChatPanel';
 import VotePanel from './VotePanel';
 import NightPanel from './NightPanel';
@@ -10,13 +11,9 @@ import SystemEventFeed from './SystemEventFeed';
 function TattleStationComponent({ windowId, socket }) {
   const phase = useGameStore((s) => s.phase);
   const selfAlive = useGameStore((s) => s.selfAlive);
-  const channels = useGameStore((s) => s.channels);
+  const activeChannelId = useGameStore((s) => s.activeChannelId);
   const systemEvents = useGameStore((s) => s.systemEvents);
   const isHacker = useGameStore(selectIsHacker);
-
-  const globalChannelId = Object.keys(channels).find(
-    (id) => channels[id].type === 'GLOBAL'
-  );
 
   const showVotePanel = phase === 'DAY_VOTE' && selfAlive;
   const showNightUi = phase === 'NIGHT_ACTIONS' && selfAlive;
@@ -34,7 +31,7 @@ function TattleStationComponent({ windowId, socket }) {
         <NightSpectatorView />
       );
     if (showSystemEvents) return <SystemEventFeed events={systemEvents} />;
-    if (globalChannelId) return <ChatPanel channelId={globalChannelId} />;
+    if (activeChannelId) return <ChatPanel channelId={activeChannelId} />;
     return (
       <div style={{ padding: 12, color: '#999' }}>
         Waiting for game to start...
@@ -54,6 +51,7 @@ function TattleStationComponent({ windowId, socket }) {
       <PhaseHeader />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <PlayerList />
+        <ChannelSidebar />
         <div
           style={{
             flex: 1,

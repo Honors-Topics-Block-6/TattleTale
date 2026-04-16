@@ -24,6 +24,7 @@ const initialState = {
   unreadCounts: {},
   popHistory: {},
   removedChannelIds: [],
+  activeChannelId: null,
 
   // Vote slice
   pendingSelection: null,
@@ -101,6 +102,12 @@ const useGameStore = create(
     markPopped: (channelId) =>
       set((state) => {
         state.popHistory[channelId] = true;
+      }),
+
+    setActiveChannel: (channelId) =>
+      set((state) => {
+        state.activeChannelId = channelId;
+        state.unreadCounts[channelId] = 0;
       }),
 
     prepareForReconnect: () =>
@@ -222,6 +229,13 @@ const useGameStore = create(
           }
         }
         state.removedChannelIds = removed;
+
+        // If the active channel was removed, fall back to GLOBAL
+        if (removed.includes(state.activeChannelId)) {
+          const globalId = view.channels.find((c) => c.type === 'GLOBAL')?.id ?? null;
+          state.activeChannelId = globalId;
+        }
+
         // Add/update channels from server
         for (const ch of view.channels) {
           if (state.channels[ch.id]) {
@@ -241,6 +255,12 @@ const useGameStore = create(
               messages: [],
             };
           }
+        }
+
+        // On initial load, auto-select GLOBAL channel
+        if (state.activeChannelId === null) {
+          const globalId = view.channels.find((c) => c.type === 'GLOBAL')?.id ?? null;
+          state.activeChannelId = globalId;
         }
 
         // Vote slice

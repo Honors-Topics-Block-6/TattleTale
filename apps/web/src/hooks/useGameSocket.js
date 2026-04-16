@@ -28,10 +28,9 @@ export default function useGameSocket(socket) {
       const { channelId, message } = payload;
       addMessage(channelId, message);
 
-      // Check if this channel's window is focused — for now, always
-      // increment unread. The UI components will call markRead when focused.
+      // Don't increment unread if this channel is currently active
       const state = storeRef.current.getState();
-      if (channelId !== findGlobalChannelId(state.channels)) {
+      if (channelId !== state.activeChannelId) {
         incrementUnread(channelId);
       }
     };
@@ -77,11 +76,4 @@ export default function useGameSocket(socket) {
     setElimination,
     prepareForReconnect,
   ]);
-}
-
-function findGlobalChannelId(channels) {
-  for (const [id, ch] of Object.entries(channels)) {
-    if (ch.type === 'GLOBAL') return id;
-  }
-  return null;
 }
