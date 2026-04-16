@@ -24,9 +24,10 @@ function getChannelLabel(channel, players, selfId) {
       return 'System';
     case 'PRIVATE': {
       const otherId = channel.members.find((m) => m !== selfId);
-      if (!otherId) return 'Private';
+      const suffix = channel.id ? ` (${channel.id.slice(-4)})` : '';
+      if (!otherId) return `Private${suffix}`;
       const other = players[otherId];
-      return other?.displayName ?? 'Private';
+      return other?.displayName ?? `Private${suffix}`;
     }
     default:
       return channel.type;
@@ -37,7 +38,9 @@ function getLastMessageTimestamp(channel) {
   const msgs = channel.messages;
   if (!msgs || msgs.length === 0) return 0;
   const last = msgs[msgs.length - 1];
-  return last?.timestamp ? Date.parse(last.timestamp) : 0;
+  if (!last?.timestamp) return 0;
+  const parsed = Date.parse(last.timestamp);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function isPrivatePartnerEliminated(channel, players, selfId) {
@@ -106,11 +109,6 @@ export default function ChannelSidebar() {
         const label = getChannelLabel(channel, players, selfId);
         const partnerEliminated = isPrivatePartnerEliminated(channel, players, selfId);
         const isLocked = channel.locked;
-        const isExpired =
-          channel.expiresAt != null &&
-          typeof channel.expiresAt === 'string' &&
-          // expiresAt is a Phase name — treat it as "expired" only if locked
-          isLocked;
 
         let rowStyle = {
           display: 'flex',
@@ -144,7 +142,7 @@ export default function ChannelSidebar() {
           labelStyle.opacity = 0.45;
         }
 
-        if (isLocked || isExpired) {
+        if (isLocked) {
           labelStyle.color = '#999';
         }
 
@@ -157,7 +155,7 @@ export default function ChannelSidebar() {
           color: '#666',
           fontSize: 10,
           flexShrink: 0,
-          fontFamily: 'Tahoma, monospace',
+          fontFamily: 'monospace',
         };
 
         if (channel.type === 'HACKER') {
@@ -175,8 +173,16 @@ export default function ChannelSidebar() {
         return (
           <div
             key={channel.id}
+            role="button"
+            tabIndex={0}
             style={rowStyle}
             onClick={() => setActiveChannel(channel.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setActiveChannel(channel.id);
+              }
+            }}
             title={isLocked ? `${label} (locked)` : label}
           >
             <span style={iconStyle}>{icon}</span>

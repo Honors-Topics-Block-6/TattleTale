@@ -106,6 +106,7 @@ const useGameStore = create(
 
     setActiveChannel: (channelId) =>
       set((state) => {
+        if (!state.channels[channelId]) return;
         state.activeChannelId = channelId;
         state.unreadCounts[channelId] = 0;
       }),
@@ -230,10 +231,10 @@ const useGameStore = create(
         }
         state.removedChannelIds = removed;
 
-        // If the active channel was removed, fall back to GLOBAL
+        // Reset active channel to null if it was removed; the null-check below
+        // then handles both this case and initial load with a single fallback.
         if (removed.includes(state.activeChannelId)) {
-          const globalId = view.channels.find((c) => c.type === 'GLOBAL')?.id ?? null;
-          state.activeChannelId = globalId;
+          state.activeChannelId = null;
         }
 
         // Add/update channels from server
@@ -257,7 +258,7 @@ const useGameStore = create(
           }
         }
 
-        // On initial load, auto-select GLOBAL channel
+        // Auto-select GLOBAL when no active channel (initial load, or active was removed above)
         if (state.activeChannelId === null) {
           const globalId = view.channels.find((c) => c.type === 'GLOBAL')?.id ?? null;
           state.activeChannelId = globalId;
