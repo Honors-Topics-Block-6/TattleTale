@@ -258,10 +258,10 @@ const useGameStore = create(
           }
         }
 
-        // Auto-select GLOBAL when no active channel (initial load, or active was removed above)
+        // Auto-select SYSTEM when no active channel (initial load, or active was removed above)
         if (state.activeChannelId === null) {
-          const globalId = view.channels.find((c) => c.type === 'GLOBAL')?.id ?? null;
-          state.activeChannelId = globalId;
+          const systemId = view.channels.find((c) => c.type === 'SYSTEM')?.id ?? null;
+          state.activeChannelId = systemId;
         }
 
         // Vote slice

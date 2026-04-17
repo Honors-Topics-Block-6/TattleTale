@@ -61,13 +61,13 @@ export default function ChannelSidebar() {
 
   const channelList = Object.values(channels);
 
-  // GLOBAL pinned first, rest sorted by last message time descending
-  const globalChannels = channelList.filter((c) => c.type === 'GLOBAL');
+  // SYSTEM pinned first, rest sorted by last message time descending
+  const systemChannels = channelList.filter((c) => c.type === 'SYSTEM');
   const otherChannels = channelList
-    .filter((c) => c.type !== 'GLOBAL')
+    .filter((c) => c.type !== 'SYSTEM')
     .sort((a, b) => getLastMessageTimestamp(b) - getLastMessageTimestamp(a));
 
-  const sorted = [...globalChannels, ...otherChannels];
+  const sorted = [...systemChannels, ...otherChannels];
 
   return (
     <div
