@@ -1,4 +1,4 @@
-import { IntentType, LobbyStatus, Phase, SessionStatus, Team } from '@tattletale/shared';
+import { IntentType, LobbyStatus, NightActionType, Phase, SessionStatus, Team } from '@tattletale/shared';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_LOBBY_SETTINGS } from '../domain/lobby/types.js';
@@ -97,7 +97,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -113,7 +113,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: otherFriend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: otherFriend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -130,7 +130,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -146,7 +146,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: h2, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: h2, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -161,7 +161,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: hacker, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: hacker, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -178,7 +178,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -193,7 +193,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: 'nonexistent', metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: 'nonexistent', metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
@@ -209,14 +209,14 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'INTENT_NOT_ALLOWED_IN_PHASE' });
   });
 
-  it('rejects unsupported actionType with UNSUPPORTED_ACTION', async () => {
+  it('rejects unknown actionType with UNSUPPORTED_ACTION', async () => {
     const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
     const hacker = hackersOf(session)[0];
     const friend = friendsOf(session)[0];
@@ -225,11 +225,27 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'INVESTIGATE', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: 'SCAN' as unknown as NightActionType, targetPlayerId: friend, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });
     expect(result).toMatchObject({ ok: false, code: 'UNSUPPORTED_ACTION' });
+  });
+
+  it('rejects a Hacker submitting a non-Hacker action with NOT_AUTHORIZED (role-based gate)', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const hacker = hackersOf(session)[0];
+    const friend = friendsOf(session)[0];
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: hacker });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.INVESTIGATE, targetPlayerId: friend, metadata: {} },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'NOT_AUTHORIZED' });
   });
 
   it('rejects payload without actionType with INVALID_PAYLOAD', async () => {
@@ -255,7 +271,7 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     const result = await handleSubmitIntent(ctx, ws, {
       intent: {
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: 42 as any, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: 42 as any, metadata: {} },
         clientTimestamp: '2026-03-17T00:00:00.000Z',
       },
     });

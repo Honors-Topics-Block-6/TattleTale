@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toPlayerSessionView } from './projections.js';
-import { Phase, ChannelType, IntentType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { Phase, ChannelType, IntentType, NightActionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import type { GameState } from './game/types.js';
 import { buildSessionFromLobby } from './game/session-domain.js';
 import { appendIntent, initializeSessionRuntime } from './game/runtime-domain.js';
@@ -108,7 +108,7 @@ describe('toPlayerSessionView', () => {
       const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!.playerId;
       appendIntent(session, {
         playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         phase: Phase.NIGHT_ACTIONS, cycle: session.cycle,
         createdAt: '2026-03-17T00:00:10.000Z',
       });
@@ -169,6 +169,46 @@ describe('toPlayerSessionView', () => {
       const hacker = Object.values(session.players).find((p) => p.team === Team.HACKERS)!.playerId;
       expect(toPlayerSessionView(session, friend).channels.find((c) => c.id === 'hacker')).toBeUndefined();
       expect(toPlayerSessionView(session, hacker).channels.find((c) => c.id === 'hacker')).toBeDefined();
+    });
+  });
+
+  describe('privateSystemEvents privacy isolation', () => {
+    it('an INVESTIGATION_RESULT in player A private bucket must NOT appear in player B view, but MUST appear in player A view', () => {
+      const state = makeGameState();
+      const aId = 'p1';
+      const bId = 'p2';
+
+      const investigationEvent = {
+        id: 'priv-evt-1',
+        type: SystemEventType.INVESTIGATION_RESULT,
+        createdAt: '2026-01-01T00:01:00Z',
+        metadata: {
+          type: 'INVESTIGATION_RESULT' as const,
+          targetPlayerId: bId,
+          targetDisplayName: 'Bob',
+          targetRoleId: 'hacker',
+          targetTeam: Team.HACKERS,
+        },
+      };
+
+      // Manually populate only player A's private bucket.
+      state.privateSystemEvents = { [aId]: [investigationEvent] };
+
+      // Negative control: player B must NOT see the investigation result.
+      const viewB = toPlayerSessionView(state, bId);
+      expect(
+        viewB.systemEvents.find((e) => e.type === SystemEventType.INVESTIGATION_RESULT),
+      ).toBeUndefined();
+
+      // Positive control: player A DOES see their own investigation result.
+      const viewA = toPlayerSessionView(state, aId);
+      const found = viewA.systemEvents.find((e) => e.type === SystemEventType.INVESTIGATION_RESULT);
+      expect(found).toBeDefined();
+      expect(found?.id).toBe('priv-evt-1');
+      expect(found?.metadata).toMatchObject({
+        type: 'INVESTIGATION_RESULT',
+        targetPlayerId: bId,
+      });
     });
   });
 });

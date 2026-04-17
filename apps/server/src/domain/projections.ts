@@ -1,4 +1,4 @@
-import { IntentType, Phase, Team, type LobbyView, type SessionView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
+import { IntentType, NightActionType, Phase, Team, type LobbyView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -49,31 +49,24 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
       const tally: Record<string, number> = {};
       let confirmedTarget: string | null = null;
 
-      // Defensive last-write-wins: collect latest HACKER_KILL intent per living Hacker.
+      // appendIntent enforces at most one SUBMIT_NIGHT_ACTION per (playerId, cycle), so
+      // there is at most one HACKER_KILL intent per living Hacker per cycle — no need
+      // for latest-per-hacker deduplication here.
       const livingHackerIds = new Set(
         Object.values(session.players)
           .filter((p) => p.alive && p.team === Team.HACKERS)
           .map((p) => p.playerId),
       );
-      const latestPerHacker = new Map<string, { target: string | null; createdAt: string }>();
       for (const intent of session.pendingIntents) {
         if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
         if (intent.cycle !== session.cycle) continue;
         if (!livingHackerIds.has(intent.playerId)) continue;
         const payload = intent.payload as NightActionIntentPayload;
-        if (payload.actionType !== 'HACKER_KILL') continue;
-        const existing = latestPerHacker.get(intent.playerId);
-        if (!existing || intent.createdAt > existing.createdAt) {
-          latestPerHacker.set(intent.playerId, {
-            target: payload.targetPlayerId ?? null,
-            createdAt: intent.createdAt,
-          });
-        }
-      }
-      for (const { target } of latestPerHacker.values()) {
+        if (payload.actionType !== NightActionType.HACKER_KILL) continue;
+        const target = payload.targetPlayerId ?? null;
         if (target) tally[target] = (tally[target] ?? 0) + 1;
+        if (intent.playerId === playerId) confirmedTarget = target;
       }
-      confirmedTarget = latestPerHacker.get(playerId)?.target ?? null;
 
       hackerNightView = { tally, confirmedTarget };
     }
@@ -100,12 +93,18 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myPendingIntentTypes: session.pendingIntents
       .filter((intent) => intent.playerId === playerId)
       .map((intent) => intent.type),
-    systemEvents: session.systemEvents.map((event) => ({
-      id: event.id,
-      type: event.type,
-      createdAt: event.createdAt,
-      metadata: event.metadata,
-    })),
+    systemEvents: [
+      ...session.systemEvents,
+      ...(session.privateSystemEvents?.[playerId] ?? []),
+    ]
+      .slice()
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+      .map((event) => ({
+        id: event.id,
+        type: event.type,
+        createdAt: event.createdAt,
+        metadata: event.metadata,
+      })),
     myRole: player?.roleId ?? 'unknown',
     myTeam: player?.team ?? ('FRIENDS' as any),
     myTeammates,
@@ -113,33 +112,3 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
   };
 }
 
-export function toSessionView(session: GameState): SessionView {
-  return {
-    gameId: session.gameId,
-    lobbyCode: session.lobbyCode,
-    status: session.status,
-    phase: session.phase,
-    cycle: session.cycle,
-    currentPhaseEndsAt: session.timers.currentPhaseEndsAt,
-    players: Object.values(session.players).map((player) => ({
-      playerId: player.playerId,
-      displayName: player.displayName,
-      alive: player.alive,
-      connected: player.connected,
-    })),
-    channels: Object.values(session.channels).map((channel) => ({
-      id: channel.id,
-      type: channel.type,
-      members: [...channel.members],
-      locked: channel.locked,
-      expiresAt: channel.expiresAt,
-    })),
-    pendingIntentTypes: session.pendingIntents.map((intent) => intent.type),
-    systemEvents: session.systemEvents.map((event) => ({
-      id: event.id,
-      type: event.type,
-      createdAt: event.createdAt,
-      metadata: event.metadata,
-    })),
-  };
-}
