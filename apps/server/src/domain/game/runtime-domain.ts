@@ -11,7 +11,7 @@ import {
 
 import { SystemEventMetadataBuilders } from './system-events.js';
 
-import type { LobbySettings, LobbyState } from '../lobby/types.js';
+import { touchLobby, type LobbySettings, type LobbyState } from '../lobby/types.js';
 import type {
   GameState,
   NightActionIntentPayload,
@@ -616,7 +616,7 @@ function eliminatePlayer(
   }
 
   session.updatedAt = now;
-  lobby.updatedAt = now;
+  touchLobby(lobby, now);
   return true;
 }
 

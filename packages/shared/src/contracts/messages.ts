@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IntentType } from '../enums.js';
+import { IntentType, RoleId } from '../enums.js';
 
 // ─── Client Message Types ────────────────────────────────────
 
@@ -63,13 +63,20 @@ export const SubmitIntentPayloadSchema = z.object({
 export type SubmitIntentPayload = z.infer<typeof SubmitIntentPayloadSchema>;
 
 export const UpdateSettingsPayloadSchema = z.object({
-  settings: z.object({
-    minPlayers: z.number().int().min(1).max(50).optional(),
-    maxPlayers: z.number().int().min(1).max(50).optional(),
-    dayDurationSeconds: z.number().int().min(30).max(600).optional(),
-    nightDurationSeconds: z.number().int().min(15).max(300).optional(),
-    enabledRoles: z.array(z.string()).optional(),
-  }),
+  /** Client's last-seen lobby.revision. Server rejects if stale (optimistic lock). */
+  expectedRevision: z.number().int().nonnegative().optional(),
+  settings: z
+    .object({
+      minPlayers: z.number().int().min(1).max(50).optional(),
+      maxPlayers: z.number().int().min(1).max(50).optional(),
+      dayDurationSeconds: z.number().int().min(30).max(600).optional(),
+      nightDurationSeconds: z.number().int().min(15).max(300).optional(),
+      enabledRoles: z.array(z.nativeEnum(RoleId)).max(20).optional(),
+    })
+    .refine(
+      (s) => s.minPlayers === undefined || s.maxPlayers === undefined || s.minPlayers <= s.maxPlayers,
+      { message: 'minPlayers must be ≤ maxPlayers', path: ['minPlayers'] },
+    ),
 });
 export type UpdateSettingsPayload = z.infer<typeof UpdateSettingsPayloadSchema>;
 

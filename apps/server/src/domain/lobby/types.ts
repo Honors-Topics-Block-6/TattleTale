@@ -29,6 +29,14 @@ export interface LobbyState {
   sessionId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Monotonically incrementing version. Bumped on every mutation. Used for optimistic locking. */
+  revision: number;
+}
+
+/** Bump updatedAt and revision atomically. Call on every lobby mutation so optimistic locks stay coherent. */
+export function touchLobby(lobby: LobbyState, now: string): void {
+  lobby.updatedAt = now;
+  lobby.revision += 1;
 }
 
 export const DEFAULT_LOBBY_SETTINGS: LobbySettings = {

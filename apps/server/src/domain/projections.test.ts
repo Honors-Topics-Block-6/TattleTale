@@ -122,6 +122,7 @@ describe('toPlayerSessionView', () => {
         sessionId: 'game-1',
         createdAt: '2026-03-17T00:00:00.000Z',
         updatedAt: '2026-03-17T00:00:00.000Z',
+        revision: 0,
       };
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);

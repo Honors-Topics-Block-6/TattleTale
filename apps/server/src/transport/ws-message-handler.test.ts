@@ -29,6 +29,7 @@ function buildLobby(playerCount: number): LobbyState {
     sessionId: 'game-1',
     createdAt,
     updatedAt: createdAt,
+    revision: 0,
   };
 }
 

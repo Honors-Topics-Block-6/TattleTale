@@ -32,6 +32,8 @@ export interface LobbyView {
   players: LobbyPlayerView[];
   settings: LobbySettingsView;
   sessionId: string | null;
+  /** Monotonic version for optimistic locking on mutating commands (e.g. updateSettings). */
+  revision: number;
 }
 
 export interface SessionPlayerView {
