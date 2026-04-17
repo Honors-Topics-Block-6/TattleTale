@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
-import { Phase, IntentType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { Phase, IntentType, NightActionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import { buildSessionFromLobby } from '../domain/game/session-domain.js';
 import {
   appendIntent,
@@ -128,7 +128,7 @@ describe('full game cycle with hacker night kill', () => {
       appendIntent(session, {
         playerId: hackerId,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: targetId, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: targetId, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle,
         createdAt: addSeconds(now, 1),
@@ -193,7 +193,7 @@ describe('full game cycle with hacker night kill', () => {
     appendIntent(session, {
       playerId: hackerIds[0],
       type: IntentType.SUBMIT_NIGHT_ACTION,
-      payload: { actionType: 'HACKER_KILL', targetPlayerId: friendIds[0], metadata: {} },
+      payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friendIds[0], metadata: {} },
       phase: Phase.NIGHT_ACTIONS,
       cycle: session.cycle,
       createdAt: addSeconds(now, 1),
@@ -201,7 +201,7 @@ describe('full game cycle with hacker night kill', () => {
     appendIntent(session, {
       playerId: hackerIds[1],
       type: IntentType.SUBMIT_NIGHT_ACTION,
-      payload: { actionType: 'HACKER_KILL', targetPlayerId: friendIds[1], metadata: {} },
+      payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friendIds[1], metadata: {} },
       phase: Phase.NIGHT_ACTIONS,
       cycle: session.cycle,
       createdAt: addSeconds(now, 1),

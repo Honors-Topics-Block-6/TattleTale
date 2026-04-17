@@ -1,4 +1,4 @@
-import { IntentType, Phase, Team, type LobbyView, type SessionView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
+import { IntentType, NightActionType, Phase, Team, type LobbyView, type SessionView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -61,7 +61,7 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
         if (intent.cycle !== session.cycle) continue;
         if (!livingHackerIds.has(intent.playerId)) continue;
         const payload = intent.payload as NightActionIntentPayload;
-        if (payload.actionType !== 'HACKER_KILL') continue;
+        if (payload.actionType !== NightActionType.HACKER_KILL) continue;
         const existing = latestPerHacker.get(intent.playerId);
         if (!existing || intent.createdAt > existing.createdAt) {
           latestPerHacker.set(intent.playerId, {
@@ -100,12 +100,18 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myPendingIntentTypes: session.pendingIntents
       .filter((intent) => intent.playerId === playerId)
       .map((intent) => intent.type),
-    systemEvents: session.systemEvents.map((event) => ({
-      id: event.id,
-      type: event.type,
-      createdAt: event.createdAt,
-      metadata: event.metadata,
-    })),
+    systemEvents: [
+      ...session.systemEvents,
+      ...(session.privateSystemEvents?.[playerId] ?? []),
+    ]
+      .slice()
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+      .map((event) => ({
+        id: event.id,
+        type: event.type,
+        createdAt: event.createdAt,
+        metadata: event.metadata,
+      })),
     myRole: player?.roleId ?? 'unknown',
     myTeam: player?.team ?? ('FRIENDS' as any),
     myTeammates,

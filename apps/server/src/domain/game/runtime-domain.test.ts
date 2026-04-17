@@ -1,8 +1,9 @@
-import { IntentType, LobbyStatus, Phase, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { ChannelType, IntentType, LobbyStatus, NightActionType, Phase, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { LobbyState } from '../lobby/types.js';
 import { DEFAULT_LOBBY_SETTINGS } from '../lobby/types.js';
+import type { GameState } from './types.js';
 import {
   appendIntent,
   calculatePhaseDurations,
@@ -239,7 +240,7 @@ describe('runtime-domain', () => {
       playerId: 'p1',
       type: IntentType.SUBMIT_NIGHT_ACTION,
       payload: {
-        actionType: 'SCAN',
+        actionType: NightActionType.MONITOR,
         targetPlayerId: 'p2',
         metadata: {},
       },
@@ -251,7 +252,7 @@ describe('runtime-domain', () => {
       playerId: 'p1',
       type: IntentType.SUBMIT_NIGHT_ACTION,
       payload: {
-        actionType: 'SCAN',
+        actionType: NightActionType.MONITOR,
         targetPlayerId: 'p3',
         metadata: {},
       },
@@ -344,7 +345,7 @@ describe('runtime-domain', () => {
       appendIntent(session, {
         playerId: hackerId,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: targetId, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: targetId, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle,
         createdAt: '2026-03-17T00:00:10.000Z',
@@ -429,7 +430,7 @@ describe('runtime-domain', () => {
         id: crypto.randomUUID(),
         playerId: h1,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: f1, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f1, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle,
         createdAt: '2026-03-17T00:00:05.000Z',
@@ -438,7 +439,7 @@ describe('runtime-domain', () => {
         id: crypto.randomUUID(),
         playerId: h1,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f2, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle,
         createdAt: '2026-03-17T00:00:10.000Z',
@@ -455,7 +456,7 @@ describe('runtime-domain', () => {
         id: crypto.randomUUID(),
         playerId: f1,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f2, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle,
         createdAt: '2026-03-17T00:00:10.000Z',
@@ -473,7 +474,7 @@ describe('runtime-domain', () => {
         id: crypto.randomUUID(),
         playerId: h1,
         type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: f2, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f2, metadata: {} },
         phase: Phase.NIGHT_ACTIONS,
         cycle: session.cycle - 1,
         createdAt: '2026-03-17T00:00:05.000Z',
@@ -502,7 +503,7 @@ describe('runtime-domain', () => {
         appendIntent(session, {
           playerId: h,
           type: IntentType.SUBMIT_NIGHT_ACTION,
-          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
           phase: Phase.NIGHT_ACTIONS,
           cycle: session.cycle,
           createdAt: '2026-03-17T00:00:10.000Z',
@@ -533,12 +534,12 @@ describe('runtime-domain', () => {
       const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
       appendIntent(session, {
         playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[0], metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friends[0], metadata: {} },
         phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
       });
       appendIntent(session, {
         playerId: h2, type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friends[1], metadata: {} },
         phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
       });
 
@@ -558,7 +559,7 @@ describe('runtime-domain', () => {
       for (const h of hackers) {
         appendIntent(session, {
           playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
-          payload: { actionType: 'HACKER_KILL', targetPlayerId: friends[1], metadata: {} },
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friends[1], metadata: {} },
           phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
         });
       }
@@ -585,7 +586,7 @@ describe('runtime-domain', () => {
       for (const h of hackers) {
         appendIntent(session, {
           playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
-          payload: { actionType: 'HACKER_KILL', targetPlayerId: friend.playerId, metadata: {} },
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend.playerId, metadata: {} },
           phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
         });
       }
@@ -655,5 +656,194 @@ describe('runtime-domain', () => {
 
     const sysEvents = session.systemEvents.filter((e) => e.type === SystemEventType.PLAYER_VOTED_OUT);
     expect(sysEvents).toHaveLength(1);
+  });
+
+  describe('resolveNightActions (priority resolver)', () => {
+    function buildNightSession() {
+      const lobby = buildLobby(5);
+      const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+      initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+      session.phase = Phase.NIGHT_ACTIONS;
+      session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      return { lobby, session };
+    }
+
+    function hackerIds(session: GameState): string[] {
+      return Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
+    }
+
+    function friendIds(session: GameState): string[] {
+      return Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
+    }
+
+    it('Tier 1 PROTECT blocks a Tier 4 HACKER_KILL on the same target', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1, f2] = friendIds(session);
+
+      // Hackers both target f1
+      for (const h of [h1, h2]) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f1, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+      // A Friend protects f1 (roleId validation happens in the handler, not the resolver).
+      appendIntent(session, {
+        playerId: f2, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.PROTECT, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:11.000Z',
+      });
+
+      const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.players[f1].alive).toBe(true);
+      expect(events.find((e) => e.type === 'PLAYER_ELIMINATED')).toBeUndefined();
+      const protEvent = session.systemEvents.find((e) => e.type === SystemEventType.NIGHT_KILL_PROTECTED);
+      expect(protEvent).toBeDefined();
+      expect(protEvent?.metadata).toMatchObject({
+        type: 'NIGHT_KILL_PROTECTED',
+        targetPlayerId: f1,
+      });
+    });
+
+    it('PROTECT on a different target does not block the kill', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1, f2, f3] = friendIds(session);
+
+      for (const h of [h1, h2]) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f1, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+      // Protection on f2 (different player) should not help f1.
+      appendIntent(session, {
+        playerId: f3, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.PROTECT, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:11.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.players[f1].alive).toBe(false);
+      expect(session.players[f2].alive).toBe(true);
+    });
+
+    it('Tier 2 INVESTIGATE writes a private system event visible only to the investigator', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1, f2] = friendIds(session);
+      // Force a known target role for the assertion (role assignment is a separate issue).
+      session.players[h1].roleId = 'HACKER';
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.INVESTIGATE, targetPlayerId: h1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      // Never added to public systemEvents.
+      expect(session.systemEvents.find((e) => e.type === SystemEventType.INVESTIGATION_RESULT)).toBeUndefined();
+      // Added to the investigator's private bucket.
+      const privateForF1 = session.privateSystemEvents?.[f1] ?? [];
+      const investigation = privateForF1.find((e) => e.type === SystemEventType.INVESTIGATION_RESULT);
+      expect(investigation).toBeDefined();
+      expect(investigation?.metadata).toMatchObject({
+        type: 'INVESTIGATION_RESULT',
+        targetPlayerId: h1,
+        targetRoleId: 'HACKER',
+        targetTeam: Team.HACKERS,
+      });
+      // Another player sees nothing private for themselves here.
+      expect(session.privateSystemEvents?.[f2]).toBeUndefined();
+    });
+
+    it('Tier 5 CREATE_TEMP_CHAT adds a TEMP channel expiring at DAY_RESOLVE', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CREATE_TEMP_CHAT, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const tempChannels = Object.values(session.channels).filter((c) => c.type === ChannelType.TEMP);
+      expect(tempChannels).toHaveLength(1);
+      expect(tempChannels[0].members.sort()).toEqual([f1, f2].sort());
+      expect(tempChannels[0].expiresAt).toBe(Phase.DAY_RESOLVE);
+      expect(tempChannels[0].locked).toBe(false);
+      const ev = session.systemEvents.find((e) => e.type === SystemEventType.TEMP_CHANNEL_CREATED);
+      expect(ev).toBeDefined();
+    });
+
+    it('Tier 5 CHANNEL_LOCK sets locked=true on a non-system channel', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.channels.global.locked).toBe(true);
+      const ev = session.systemEvents.find((e) => e.type === SystemEventType.CHANNEL_LOCKED);
+      expect(ev?.metadata).toEqual({ type: 'CHANNEL_LOCKED', channelId: 'global' });
+    });
+
+    it('priority order: PROTECT wins even when submitted after the kill intents', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1, f2] = friendIds(session);
+
+      // Kill submitted earlier
+      for (const h of [h1, h2]) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f1, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:05.000Z',
+        });
+      }
+      // Protection submitted later (createdAt later), still applies first by tier.
+      appendIntent(session, {
+        playerId: f2, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.PROTECT, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:25.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.players[f1].alive).toBe(true);
+    });
+
+    it('clears night-action intents after resolution', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      for (const h of [h1, h2]) {
+        appendIntent(session, {
+          playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f1, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+        });
+      }
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const remaining = session.pendingIntents.filter((i) => i.type === IntentType.SUBMIT_NIGHT_ACTION);
+      expect(remaining).toHaveLength(0);
+    });
   });
 });

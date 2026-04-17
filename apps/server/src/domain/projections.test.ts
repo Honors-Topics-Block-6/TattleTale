@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toPlayerSessionView } from './projections.js';
-import { Phase, ChannelType, IntentType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { Phase, ChannelType, IntentType, NightActionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import type { GameState } from './game/types.js';
 import { buildSessionFromLobby } from './game/session-domain.js';
 import { appendIntent, initializeSessionRuntime } from './game/runtime-domain.js';
@@ -108,7 +108,7 @@ describe('toPlayerSessionView', () => {
       const friend = Object.values(session.players).find((p) => p.team === Team.FRIENDS)!.playerId;
       appendIntent(session, {
         playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
-        payload: { actionType: 'HACKER_KILL', targetPlayerId: friend, metadata: {} },
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
         phase: Phase.NIGHT_ACTIONS, cycle: session.cycle,
         createdAt: '2026-03-17T00:00:10.000Z',
       });
