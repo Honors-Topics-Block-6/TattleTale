@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, LobbyStatus, NightActionType, Phase, RoleID, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { ChannelType, IntentType, LobbyStatus, NightActionType, Phase, RoleId, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 
 import { describe, expect, it } from 'vitest';
 
