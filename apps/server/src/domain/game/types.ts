@@ -1,6 +1,7 @@
 import type {
   ChannelType,
   IntentType,
+  NightActionType,
   Phase,
   SessionStatus,
   SystemEventMetadata,
@@ -41,8 +42,9 @@ export interface VoteIntentPayload {
 }
 
 export interface NightActionIntentPayload {
-  actionType: string;
+  actionType: NightActionType;
   targetPlayerId: string | null;
+  targetChannelId?: string;
   metadata: Record<string, unknown>;
 }
 
@@ -69,6 +71,12 @@ export interface GameState {
   channels: Record<string, ChannelState>;
   pendingIntents: PlayerIntent[];
   systemEvents: SystemEventState[];
+  /**
+   * Per-player private events (e.g., INVESTIGATION_RESULT) that must not be
+   * visible to other players. Projected only into the matching player's view.
+   * Optional for backward compatibility with pre-existing persisted sessions.
+   */
+  privateSystemEvents?: Record<string, SystemEventState[]>;
   timers: GameTimersState;
   createdAt: string;
   updatedAt: string;

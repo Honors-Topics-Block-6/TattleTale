@@ -67,7 +67,9 @@ export type SystemEventMetadata =
   | { type: 'COMMUNICATION_JAMMED' }
   | { type: 'MESSAGE_INTEGRITY_COMPROMISED' }
   | { type: 'TEMP_CHANNEL_CREATED'; channelId: string }
-  | { type: 'PSYCHIC_SIGNAL_RECEIVED' };
+  | { type: 'PSYCHIC_SIGNAL_RECEIVED' }
+  | { type: 'INVESTIGATION_RESULT'; targetPlayerId: string; targetDisplayName: string; targetRoleId: string | null; targetTeam: Team }
+  | { type: 'NIGHT_KILL_PROTECTED'; targetPlayerId: string; targetDisplayName: string };
 
 export interface SystemEventView {
   id: string;
