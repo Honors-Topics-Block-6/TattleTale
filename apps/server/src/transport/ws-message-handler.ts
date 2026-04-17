@@ -1,6 +1,8 @@
 import {
+  ChannelType,
   IntentType,
   LobbyStatus,
+  NightActionType,
   Phase,
   SessionStatus,
   SystemEventType,
@@ -22,6 +24,7 @@ import {
   reconcileSessionRuntime,
   type RuntimeEvent,
 } from '../domain/game/runtime-domain.js';
+import { validateRoleAction } from '../domain/game/role-actions.js';
 import { buildSessionFromLobby } from '../domain/game/session-domain.js';
 import type {
   GameState,
@@ -135,6 +138,84 @@ function fail(code: string, message: string): HandlerResult {
 
 function ok(data: unknown): HandlerResult {
   return { ok: true, data };
+}
+
+type TargetValidationResult = { valid: true } | { valid: false; reason: string };
+
+function validateNightActionTarget(
+  session: GameState,
+  actorId: string,
+  actionType: NightActionType,
+  targetId: string | null,
+): TargetValidationResult {
+  const actor = session.players[actorId];
+
+  switch (actionType) {
+    case NightActionType.HACKER_KILL: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living non-Hacker player.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive || target.team === Team.HACKERS) {
+        return { valid: false, reason: 'Target must be a living non-Hacker player.' };
+      }
+      return { valid: true };
+    }
+    case NightActionType.VENGEFUL_KILL: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    case NightActionType.PROTECT: {
+      if (!targetId) return { valid: false, reason: 'PROTECT requires a target.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    case NightActionType.INVESTIGATE:
+    case NightActionType.MONITOR: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    case NightActionType.JAM:
+    case NightActionType.MISDIRECT:
+    case NightActionType.IMITATE: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    case NightActionType.CREATE_TEMP_CHAT: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    case NightActionType.CHANNEL_LOCK: {
+      // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
+      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate).
+      if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
+      const channel = session.channels[targetId];
+      if (!channel) return { valid: false, reason: 'Channel does not exist.' };
+      // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
+      if (channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) {
+        return { valid: false, reason: 'System and Hacker channels cannot be locked.' };
+      }
+      return { valid: true };
+    }
+    case NightActionType.SWAP_ROLE: {
+      if (!targetId || targetId === actorId) return { valid: false, reason: 'SWAP_ROLE requires another player as target.' };
+      const target = session.players[targetId];
+      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      return { valid: true };
+    }
+    default: {
+      // Defensive: covers any future NightActionType added without handler branch.
+      void actor;
+      return { valid: false, reason: 'Unsupported night action target.' };
+    }
+  }
 }
 
 function requirePlayerId(ctx: HandlerContext, ws: WebSocket): string {
@@ -733,29 +814,39 @@ export async function handleSubmitIntent(
         return fail('INVALID_PAYLOAD', 'Night action payload is malformed.');
       }
 
-      // Only HACKER_KILL is supported in MVP
-      if (nightPayload.actionType !== 'HACKER_KILL') {
-        return fail('UNSUPPORTED_ACTION', 'Only HACKER_KILL is supported.');
+      // actionType must be a known NightActionType
+      if (!Object.values(NightActionType).includes(nightPayload.actionType as NightActionType)) {
+        return fail('UNSUPPORTED_ACTION', `Unknown night action type: ${nightPayload.actionType}.`);
       }
+      const actionType = nightPayload.actionType as NightActionType;
 
-      // Sender must be a living Hacker
       const sender = session.players[actorId];
-      if (!sender || !sender.alive || sender.team !== Team.HACKERS) {
-        return fail('NOT_AUTHORIZED', 'Only living Hackers can submit night kill actions.');
+      if (!sender || !sender.alive) {
+        return fail('NOT_AUTHORIZED', 'Only living players can submit night actions.');
       }
 
-      // Target must be a living non-Hacker who is not the sender
-      const nightTarget = nightPayload.targetPlayerId
-        ? session.players[nightPayload.targetPlayerId]
-        : undefined;
-      if (
-        !nightPayload.targetPlayerId
-        || nightPayload.targetPlayerId === actorId
-        || !nightTarget
-        || !nightTarget.alive
-        || nightTarget.team === Team.HACKERS
-      ) {
-        return fail('INVALID_TARGET', 'Target must be a living non-Hacker player.');
+      // Role-based authorization (falls back to team-based for HACKER_KILL until roles are assigned).
+      const roleCheck = validateRoleAction({
+        roleId: sender.roleId,
+        team: sender.team,
+        actionType,
+      });
+      if (!roleCheck.allowed) {
+        return fail(
+          'NOT_AUTHORIZED',
+          `Your role cannot submit ${actionType}.`,
+        );
+      }
+
+      // Per-action-type target validation.
+      // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
+      // compat with in-flight payloads. TODO: remove fallback once clients migrate.
+      const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
+        ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
+        : nightPayload.targetPlayerId;
+      const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
+      if (!targetValidation.valid) {
+        return fail('INVALID_TARGET', targetValidation.reason);
       }
     }
 
