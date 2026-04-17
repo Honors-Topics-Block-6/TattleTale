@@ -44,6 +44,7 @@ export interface VoteIntentPayload {
 export interface NightActionIntentPayload {
   actionType: NightActionType;
   targetPlayerId: string | null;
+  targetChannelId?: string;
   metadata: Record<string, unknown>;
 }
 

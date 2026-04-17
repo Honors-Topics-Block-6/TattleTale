@@ -68,6 +68,10 @@ export function buildSessionFromLobby(
         metadata: SystemEventMetadataBuilders.gameStarted(),
       },
     ],
+    // Eagerly initialize so new sessions always have the field. The lazy-init guard in
+    // appendPrivateSystemEvent is kept for backward compatibility with sessions that were
+    // persisted before this field was introduced and may be missing it on deserialization.
+    privateSystemEvents: {},
     timers: {
       currentPhaseEndsAt: null,
       currentPhaseDurationSeconds: 0,

@@ -324,13 +324,23 @@ export function resolveNightActions(
 
   // ── Tier 3: Communication interference ───────────────────────────
   // JAM / MISDIRECT / IMITATE require cross-cycle effect state (apply on next day).
-  // Cross-cycle wiring is deferred to a follow-up; intents are accepted here to preserve
-  // priority ordering and surface matching public SYSTEM events when they're eventually wired.
+  // Public placeholder events are now emitted so players see that interference occurred.
+  // Cross-cycle effect application (actual message suppression / redirection) is still
+  // deferred to a follow-up task — only the events are wired here.
   for (const intent of byTier(3)) {
     const submitter = session.players[intent.playerId];
     if (!submitter || !submitter.alive) continue;
-    // Intentionally no-op in this resolver: tier 3 effects materialize on the following day.
-    void intent;
+
+    if (intent.payload.actionType === NightActionType.JAM) {
+      appendSystemEvent(session, SystemEventType.COMMUNICATION_JAMMED, transitionAt,
+        SystemEventMetadataBuilders.communicationJammed());
+    } else if (intent.payload.actionType === NightActionType.MISDIRECT) {
+      appendSystemEvent(session, SystemEventType.MESSAGE_INTEGRITY_COMPROMISED, transitionAt,
+        SystemEventMetadataBuilders.messageIntegrityCompromised());
+    } else if (intent.payload.actionType === NightActionType.IMITATE) {
+      appendSystemEvent(session, SystemEventType.PSYCHIC_SIGNAL_RECEIVED, transitionAt,
+        SystemEventMetadataBuilders.psychicSignalReceived());
+    }
   }
 
   // ── Tier 4: Eliminations (kills respect tier-1 protection) ───────
@@ -351,21 +361,40 @@ export function resolveNightActions(
 
     // Synchronous VENGEFUL_KILL: if the eliminated player pre-submitted a VENGEFUL_KILL,
     // their chosen target is eliminated immediately, provided they're alive and unprotected.
-    if (killResolution.kind === 'ELIMINATE' && session.status === SessionStatus.ACTIVE) {
+    // NOTE: we intentionally do NOT gate on session.status here — the hacker kill may have
+    // already triggered a premature win-state flip inside applyEliminationOutcome. The
+    // vengeful kill is a same-night follow-on that must fire regardless, and the final
+    // win-condition is then re-evaluated after both deaths settle.
+    if (killResolution.kind === 'ELIMINATE') {
       const vengefulIntent = byTier(4).find(
         (intent) =>
           intent.payload.actionType === NightActionType.VENGEFUL_KILL
           && intent.playerId === killResolution.targetPlayerId,
       );
       const vengefulTargetId = vengefulIntent?.payload.targetPlayerId ?? null;
-      if (
-        vengefulTargetId
-        && session.players[vengefulTargetId]?.alive
-        && !protectedPlayerIds.has(vengefulTargetId)
-      ) {
-        events.push(
-          ...processElimination(session, lobby, vengefulTargetId, transitionAt, 'NIGHT_KILL'),
-        );
+      const vengefulTargetName = vengefulTargetId
+        ? (session.players[vengefulTargetId]?.displayName ?? '')
+        : '';
+      if (vengefulTargetId && session.players[vengefulTargetId]?.alive) {
+        if (protectedPlayerIds.has(vengefulTargetId)) {
+          appendSystemEvent(
+            session,
+            SystemEventType.NIGHT_KILL_PROTECTED,
+            transitionAt,
+            SystemEventMetadataBuilders.nightKillProtected(
+              vengefulTargetId,
+              vengefulTargetName,
+            ),
+          );
+        } else {
+          const vengefulResolution: EliminationResolution = {
+            kind: 'ELIMINATE',
+            targetPlayerId: vengefulTargetId,
+            targetDisplayName: vengefulTargetName,
+            reason: 'NIGHT_KILL',
+          };
+          events.push(...applyEliminationOutcome(session, lobby, vengefulResolution, transitionAt));
+        }
       }
     }
   }
@@ -398,12 +427,14 @@ export function resolveNightActions(
         SystemEventMetadataBuilders.tempChannelCreated(channelId),
       );
     } else if (intent.payload.actionType === NightActionType.CHANNEL_LOCK) {
-      // `targetPlayerId` carries the channel id for this action (reusing the string field
-      // avoids extending the intent payload shape for one action type).
-      const channelId = intent.payload.targetPlayerId;
+      // Prefer the dedicated targetChannelId field; fall back to targetPlayerId for backward
+      // compat with in-flight payloads submitted before clients migrated.
+      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId.
+      const channelId = intent.payload.targetChannelId ?? intent.payload.targetPlayerId;
       if (!channelId) continue;
       const channel = session.channels[channelId];
-      if (!channel || channel.type === ChannelType.SYSTEM) continue;
+      // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
+      if (!channel || channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) continue;
       if (channel.locked) continue;
       channel.locked = true;
       appendSystemEvent(
@@ -426,6 +457,8 @@ function appendPrivateSystemEvent(
   now: string,
   metadata: SystemEventMetadata,
 ): void {
+  // Lazy-init guard: kept for backward compatibility with sessions persisted before
+  // privateSystemEvents was introduced — those may deserialize without the field.
   if (!session.privateSystemEvents) {
     session.privateSystemEvents = {};
   }
@@ -437,6 +470,9 @@ function appendPrivateSystemEvent(
   };
   const bucket = session.privateSystemEvents[playerId] ?? [];
   bucket.push(entry);
+  if (bucket.length > SYSTEM_EVENT_CAP) {
+    bucket.splice(0, bucket.length - SYSTEM_EVENT_CAP);
+  }
   session.privateSystemEvents[playerId] = bucket;
 }
 

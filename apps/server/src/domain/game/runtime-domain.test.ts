@@ -845,5 +845,164 @@ describe('runtime-domain', () => {
       const remaining = session.pendingIntents.filter((i) => i.type === IntentType.SUBMIT_NIGHT_ACTION);
       expect(remaining).toHaveLength(0);
     });
+
+    describe('VENGEFUL_KILL', () => {
+      // Uses 7 players (2 Hackers + 5 Friends) so that killing the vengeful Friend
+      // does not immediately satisfy the Hackers-win condition (which would prevent
+      // the VENGEFUL_KILL branch from running while session.status === ACTIVE).
+      function buildLargerNightSession() {
+        const lobby = buildLobby(7);
+        const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+        initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
+        session.phase = Phase.NIGHT_ACTIONS;
+        session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+        return { lobby, session };
+      }
+
+      it('vengeful target is eliminated when the victim had a valid VENGEFUL_KILL queued', () => {
+        const { lobby, session } = buildLargerNightSession();
+        const [h1, h2] = hackerIds(session);
+        const [f1, f2, f3] = friendIds(session);
+
+        // f1 is our vengeful player; set roleId so the resolver's synchronous-trigger logic is clear.
+        const vengefulId = f1;
+        const revengeTargetId = f2;
+        session.players[vengefulId].roleId = 'VENGEFUL';
+
+        // Both Hackers target the vengeful player.
+        for (const h of [h1, h2]) {
+          appendIntent(session, {
+            playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: vengefulId, metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+          });
+        }
+
+        // Vengeful player queues a VENGEFUL_KILL against f2.
+        appendIntent(session, {
+          playerId: vengefulId, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.VENGEFUL_KILL, targetPlayerId: revengeTargetId, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:11.000Z',
+        });
+
+        const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+        // Vengeful player is dead.
+        expect(session.players[vengefulId].alive).toBe(false);
+        // Revenge target is also dead.
+        expect(session.players[revengeTargetId].alive).toBe(false);
+        // f3 (uninvolved friend) is still alive.
+        expect(session.players[f3].alive).toBe(true);
+
+        // Two PLAYER_KILLED_AT_NIGHT system events: one per victim.
+        const nightKillEvents = session.systemEvents.filter(
+          (e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT,
+        );
+        expect(nightKillEvents).toHaveLength(2);
+
+        // Both PLAYER_ELIMINATED runtime events must exist.
+        const elimEvents = events.filter((e) => e.type === 'PLAYER_ELIMINATED');
+        expect(elimEvents).toHaveLength(2);
+        const elimPlayerIds = elimEvents.map((e) => (e as { playerId: string }).playerId);
+        expect(elimPlayerIds).toContain(vengefulId);
+        expect(elimPlayerIds).toContain(revengeTargetId);
+      });
+
+      it('vengeful target is NOT eliminated when they were protected in tier 1', () => {
+        const { lobby, session } = buildLargerNightSession();
+        const [h1, h2] = hackerIds(session);
+        const [f1, f2, f3] = friendIds(session);
+
+        const vengefulId = f1;
+        const revengeTargetId = f2;
+        const protectorId = f3;
+        session.players[vengefulId].roleId = 'VENGEFUL';
+
+        // Both Hackers target the vengeful player — that kill goes through (no protection on f1).
+        for (const h of [h1, h2]) {
+          appendIntent(session, {
+            playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: vengefulId, metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+          });
+        }
+
+        // Vengeful player queues a VENGEFUL_KILL against f2.
+        appendIntent(session, {
+          playerId: vengefulId, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.VENGEFUL_KILL, targetPlayerId: revengeTargetId, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:11.000Z',
+        });
+
+        // f3 protects the revenge target (f2), blocking the VENGEFUL_KILL.
+        appendIntent(session, {
+          playerId: protectorId, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.PROTECT, targetPlayerId: revengeTargetId, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:09.000Z',
+        });
+
+        const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+        // Vengeful player is dead (their protection didn't cover them).
+        expect(session.players[vengefulId].alive).toBe(false);
+        // Revenge target is alive (protected).
+        expect(session.players[revengeTargetId].alive).toBe(true);
+
+        // Exactly one PLAYER_KILLED_AT_NIGHT (the vengeful player's death).
+        const nightKillEvents = session.systemEvents.filter(
+          (e) => e.type === SystemEventType.PLAYER_KILLED_AT_NIGHT,
+        );
+        expect(nightKillEvents).toHaveLength(1);
+        expect(nightKillEvents[0].metadata).toMatchObject({ targetPlayerId: vengefulId });
+
+        // The resolver silently drops the blocked VENGEFUL_KILL (no event is emitted for it).
+        // The only NIGHT_KILL_PROTECTED event that exists is for the initial hacker kill, but
+        // since the hacker kill target (vengefulId) was NOT protected, there is no
+        // NIGHT_KILL_PROTECTED event at all in this scenario.
+        // Verify: only one elimination occurred (the vengeful player's).
+        const elimEvents = events.filter((e) => e.type === 'PLAYER_ELIMINATED');
+        expect(elimEvents).toHaveLength(1);
+        expect((elimEvents[0] as { playerId: string }).playerId).toBe(vengefulId);
+      });
+
+      it('vengeful-kill that reduces hackersAlive to 0 produces GAME_ENDED with FRIENDS_WIN', () => {
+        const { lobby, session } = buildNightSession();
+        const [h1, h2] = hackerIds(session);
+        const [f1] = friendIds(session);
+
+        const vengefulId = f1;
+        session.players[vengefulId].roleId = 'VENGEFUL';
+
+        // Both Hackers target the vengeful Friend.
+        for (const h of [h1, h2]) {
+          appendIntent(session, {
+            playerId: h, type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: vengefulId, metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+          });
+        }
+
+        // Vengeful Friend queues a VENGEFUL_KILL targeting h1.
+        appendIntent(session, {
+          playerId: vengefulId, type: IntentType.SUBMIT_NIGHT_ACTION,
+          payload: { actionType: NightActionType.VENGEFUL_KILL, targetPlayerId: h1, metadata: {} },
+          phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:11.000Z',
+        });
+
+        // Pre-eliminate h2 so that after the vengeful kill on h1, zero Hackers remain.
+        session.players[h2].alive = false;
+
+        const events = reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+        // Game should have ended with Friends winning.
+        expect(session.status).toBe(SessionStatus.FRIENDS_WIN);
+
+        const gameEndedEvent = events.find((e) => e.type === 'GAME_ENDED');
+        expect(gameEndedEvent).toBeDefined();
+        if (gameEndedEvent && gameEndedEvent.type === 'GAME_ENDED') {
+          expect(gameEndedEvent.winnerTeam).toBe(Team.FRIENDS);
+        }
+      });
+    });
   });
 });

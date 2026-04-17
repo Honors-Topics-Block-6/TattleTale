@@ -192,11 +192,15 @@ function validateNightActionTarget(
       return { valid: true };
     }
     case NightActionType.CHANNEL_LOCK: {
-      // targetPlayerId carries the channel id for this action type.
+      // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
+      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate).
       if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
       const channel = session.channels[targetId];
       if (!channel) return { valid: false, reason: 'Channel does not exist.' };
-      if (channel.type === ChannelType.SYSTEM) return { valid: false, reason: 'System channel cannot be locked.' };
+      // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
+      if (channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) {
+        return { valid: false, reason: 'System and Hacker channels cannot be locked.' };
+      }
       return { valid: true };
     }
     case NightActionType.SWAP_ROLE: {
@@ -791,7 +795,12 @@ export async function handleSubmitIntent(
       }
 
       // Per-action-type target validation.
-      const targetValidation = validateNightActionTarget(session, actorId, actionType, nightPayload.targetPlayerId);
+      // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
+      // compat with in-flight payloads. TODO: remove fallback once clients migrate.
+      const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
+        ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
+        : nightPayload.targetPlayerId;
+      const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
       if (!targetValidation.valid) {
         return fail('INVALID_TARGET', targetValidation.reason);
       }

@@ -70,6 +70,11 @@ export function validateRoleAction({
   team,
   actionType,
 }: RoleActionValidationContext): RoleActionValidationResult {
+  // FIXME: This null-roleId fallback ONLY exists for pre-role-assignment backward
+  // compatibility and MUST be removed when role assignment ships. If it is left in
+  // place, any session persisted with roleId=null will silently continue working while
+  // new role-assigned sessions are properly gated — producing inconsistent authorization
+  // across concurrent sessions. Delete this entire branch once role assignment is live.
   if (roleId === null) {
     if (actionType === NightActionType.HACKER_KILL && team === Team.HACKERS) {
       return { allowed: true };
