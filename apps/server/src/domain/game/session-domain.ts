@@ -7,8 +7,13 @@ import {
 } from '@tattletale/shared';
 
 import type { LobbyState } from '../lobby/types.js';
-import type { GameState } from './types.js';
+import type { ChannelState, GameState } from './types.js';
 import { SystemEventMetadataBuilders } from './system-events.js';
+
+export function privateChannelId(a: string, b: string): string {
+  const [x, y] = [a, b].sort();
+  return `pm:${x}:${y}`;
+}
 
 export function buildSessionFromLobby(
   lobby: LobbyState,
@@ -27,6 +32,23 @@ export function buildSessionFromLobby(
       permissions: [],
     },
   ]);
+
+  const privateChannels: Record<string, ChannelState> = {};
+  for (let i = 0; i < lobby.players.length; i++) {
+    for (let j = i + 1; j < lobby.players.length; j++) {
+      const a = lobby.players[i].playerId;
+      const b = lobby.players[j].playerId;
+      const id = privateChannelId(a, b);
+      const [memberA, memberB] = [a, b].sort();
+      privateChannels[id] = {
+        id,
+        type: ChannelType.PRIVATE,
+        members: [memberA, memberB],
+        locked: false,
+        expiresAt: null,
+      };
+    }
+  }
 
   return {
     gameId,
@@ -58,6 +80,7 @@ export function buildSessionFromLobby(
         locked: false,
         expiresAt: null,
       },
+      ...privateChannels,
     },
     pendingIntents: [],
     systemEvents: [

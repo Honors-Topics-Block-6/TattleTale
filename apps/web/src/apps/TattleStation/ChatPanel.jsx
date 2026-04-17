@@ -27,13 +27,31 @@ function DayDivider({ cycle }) {
 export default function ChatPanel({ channelId }) {
   const socket = useSocket();
   const channel = useGameStore((s) => s.channels[channelId]);
+  const phase = useGameStore((s) => s.phase);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const selfId = useGameStore((s) => s.selfId);
+  const players = useGameStore((s) => s.players);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef(null);
 
   const messages = channel?.messages || [];
   const isLocked = channel?.locked ?? false;
+  // PMs are only allowed during DAY_OPEN (open communication). Every other
+  // phase — voting, resolution, night, reveal, and future FINAL_STATEMENTS —
+  // locks the PM input. Hacker chat has no phase restriction.
+  const isPrivateOutsideDayOpen =
+    channel?.type === 'PRIVATE' && phase !== 'DAY_OPEN';
+  const peerId =
+    channel?.type === 'PRIVATE'
+      ? channel.members.find((id) => id !== selfId)
+      : null;
+  const isPeerDead = peerId ? players[peerId]?.alive === false : false;
+  const isBlocked = isLocked || isPrivateOutsideDayOpen || isPeerDead;
+  const blockedReason = isPeerDead
+    ? 'This player has been eliminated'
+    : isPrivateOutsideDayOpen
+    ? 'Private messages are only available during Open Communication'
+    : 'Channel locked';
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -42,7 +60,7 @@ export default function ChatPanel({ channelId }) {
 
   const handleSend = async () => {
     const content = inputValue.trim();
-    if (!content || isLocked || !selfAlive) return;
+    if (!content || isBlocked || !selfAlive) return;
 
     try {
       await socket.send('submitIntent', {
@@ -133,7 +151,7 @@ export default function ChatPanel({ channelId }) {
             borderTop: '1px solid #aca899',
           }}
         >
-          {isLocked ? (
+          {isBlocked ? (
             <div
               style={{
                 flex: 1,
@@ -145,7 +163,7 @@ export default function ChatPanel({ channelId }) {
                 gap: 4,
               }}
             >
-              Channel locked
+              {blockedReason}
             </div>
           ) : (
             <>

@@ -88,7 +88,7 @@ describe('runtime-domain', () => {
     expect(session.cycle).toBe(5);
   });
 
-  it('eliminates vote winner and removes them from channels', () => {
+  it('eliminates vote winner and keeps them as spectators in channels', () => {
     const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
     initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0.99);
@@ -109,7 +109,9 @@ describe('runtime-domain', () => {
     reconcileSessionRuntime(session, lobby, lobby.settings, '2026-03-17T00:00:25.000Z');
 
     expect(session.players.p1.alive).toBe(false);
-    expect(session.channels.global.members.includes('p1')).toBe(false);
+    // Spectators keep their channel memberships so they can read chats;
+    // sending is blocked by the PLAYER_NOT_ALIVE gate in the SEND_MESSAGE handler.
+    expect(session.channels.global.members.includes('p1')).toBe(true);
   });
 
   it('does not eliminate when abstain has the most votes or when tied', () => {

@@ -24,6 +24,7 @@ const initialState = {
   unreadCounts: {},
   popHistory: {},
   removedChannelIds: [],
+  activeTattleChannelId: 'global',
 
   // Vote slice
   pendingSelection: null,
@@ -101,6 +102,11 @@ const useGameStore = create(
     markPopped: (channelId) =>
       set((state) => {
         state.popHistory[channelId] = true;
+      }),
+
+    setActiveTattleChannel: (channelId) =>
+      set((state) => {
+        state.activeTattleChannelId = channelId;
       }),
 
     prepareForReconnect: () =>
@@ -222,6 +228,9 @@ const useGameStore = create(
           }
         }
         state.removedChannelIds = removed;
+        if (!serverChannelIds.has(state.activeTattleChannelId)) {
+          state.activeTattleChannelId = 'global';
+        }
         // Add/update channels from server
         for (const ch of view.channels) {
           if (state.channels[ch.id]) {

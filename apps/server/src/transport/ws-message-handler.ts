@@ -1,4 +1,5 @@
 import {
+  ChannelType,
   IntentType,
   LobbyStatus,
   Phase,
@@ -615,6 +616,19 @@ export async function handleSubmitIntent(
         return fail('CHANNEL_LOCKED', 'This channel is locked.');
       }
 
+      if (channel.type === ChannelType.PRIVATE) {
+        if (session.phase !== Phase.DAY_OPEN) {
+          return fail(
+            'CHANNEL_LOCKED_PHASE',
+            'Private messages are only available during Open Communication.',
+          );
+        }
+        const peerId = channel.members.find((id) => id !== actorId);
+        if (peerId && !session.players[peerId]?.alive) {
+          return fail('PEER_NOT_ALIVE', 'You cannot message an eliminated player.');
+        }
+      }
+
       const trimmed = messagePayload.content.trim();
       if (!trimmed) {
         return fail('EMPTY_MESSAGE', 'Message content cannot be empty.');
@@ -633,13 +647,14 @@ export async function handleSubmitIntent(
         cycle: session.cycle,
       };
 
-      // Defense-in-depth: for HACKER channels, filter recipients by team+alive
-      // even if channel.members is somehow wrong.
+      // Defense-in-depth: for HACKER channels, filter recipients by team
+      // even if channel.members is somehow wrong. Dead hackers remain recipients
+      // so they can keep reading the channel after elimination.
       let recipients = channel.members;
       if (channel.type === 'HACKER') {
         recipients = recipients.filter((id) => {
           const p = session.players[id];
-          return Boolean(p?.alive && p.team === Team.HACKERS);
+          return Boolean(p?.team === Team.HACKERS);
         });
       }
 

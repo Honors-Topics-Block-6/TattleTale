@@ -1,9 +1,9 @@
-import { IntentType, LobbyStatus, Phase, SessionStatus, Team } from '@tattletale/shared';
+import { ChannelType, IntentType, LobbyStatus, Phase, SessionStatus, Team } from '@tattletale/shared';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_LOBBY_SETTINGS } from '../domain/lobby/types.js';
 import type { LobbyState } from '../domain/lobby/types.js';
-import { buildSessionFromLobby } from '../domain/game/session-domain.js';
+import { buildSessionFromLobby, privateChannelId } from '../domain/game/session-domain.js';
 import { initializeSessionRuntime } from '../domain/game/runtime-domain.js';
 import type { GameState } from '../domain/game/types.js';
 import { handleSubmitIntent, type HandlerContext } from './ws-message-handler.js';
@@ -36,8 +36,13 @@ function buildCtx(opts: {
   lobby: LobbyState;
   session: GameState;
   senderId: string;
-}): { ctx: HandlerContext; ws: WebSocket } {
+}): {
+  ctx: HandlerContext;
+  ws: WebSocket;
+  broadcasts: Array<{ channelId: string; recipients: string[] }>;
+} {
   const { lobby, session, senderId } = opts;
+  const broadcasts: Array<{ channelId: string; recipients: string[] }> = [];
   const ctx: HandlerContext = {
     repo: {
       getLobby: async () => lobby,
@@ -55,14 +60,16 @@ function buildCtx(opts: {
     setPlayerIdForWs: () => {},
     broadcastLobbyState: () => {},
     broadcastSessionState: () => {},
-    broadcastChannelMessage: () => {},
+    broadcastChannelMessage: (channelId, _message, recipients) => {
+      broadcasts.push({ channelId, recipients: [...recipients] });
+    },
     broadcastPlayerEliminated: () => {},
     closeWsForPlayer: () => {},
     setPhaseAlarm: async () => {},
     clearPhaseAlarm: async () => {},
   };
   const ws = {} as WebSocket;
-  return { ctx, ws };
+  return { ctx, ws, broadcasts };
 }
 
 function setupSession(phase: Phase) {
@@ -368,5 +375,130 @@ describe('handleSubmitIntent — hacker channel privacy', () => {
       },
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('handleSubmitIntent — PRIVATE channels', () => {
+  it('creates a PRIVATE channel per pair of players at game start', () => {
+    const lobby = buildLobby(5);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    const privateChannels = Object.values(session.channels).filter(
+      (ch) => ch.type === ChannelType.PRIVATE,
+    );
+    // 5 players → C(5,2) = 10 pairs
+    expect(privateChannels).toHaveLength(10);
+    // Each private channel has exactly 2 members
+    for (const ch of privateChannels) {
+      expect(ch.members).toHaveLength(2);
+      expect(ch.id).toBe(privateChannelId(ch.members[0], ch.members[1]));
+    }
+  });
+
+  it('privateChannelId is deterministic regardless of argument order', () => {
+    expect(privateChannelId('p1', 'p2')).toBe('pm:p1:p2');
+    expect(privateChannelId('p2', 'p1')).toBe('pm:p1:p2');
+  });
+
+  it('allows SEND_MESSAGE on a PRIVATE channel during DAY_OPEN', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    const channelId = privateChannelId('p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hi p2' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    Phase.DAY_VOTE,
+    Phase.DAY_RESOLVE,
+    Phase.NIGHT_ACTIONS,
+    Phase.NIGHT_RESOLVE,
+    Phase.NIGHT_REVEAL,
+  ])('rejects SEND_MESSAGE on a PRIVATE channel during %s with CHANNEL_LOCKED_PHASE', async (phase) => {
+    const { lobby, session } = setupSession(phase);
+    const channelId = privateChannelId('p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'psst' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'CHANNEL_LOCKED_PHASE' });
+  });
+
+  it('rejects non-member SEND_MESSAGE on a PRIVATE channel with NOT_CHANNEL_MEMBER', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    const channelId = privateChannelId('p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p3' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'eavesdrop' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'NOT_CHANNEL_MEMBER' });
+  });
+
+  it('rejects eliminated sender on a PRIVATE channel with PLAYER_NOT_ALIVE', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    session.players.p1.alive = false;
+    const channelId = privateChannelId('p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'from the grave' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PLAYER_NOT_ALIVE' });
+  });
+
+  it('rejects PM to an eliminated peer with PEER_NOT_ALIVE', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    session.players.p2.alive = false;
+    const channelId = privateChannelId('p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'are you there' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PEER_NOT_ALIVE' });
+  });
+});
+
+describe('handleSubmitIntent — HACKER channel receives', () => {
+  it('keeps dead hackers as recipients of hacker channel broadcasts', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const [h1, h2] = hackersOf(session);
+    session.players[h2].alive = false;
+    const { ctx, ws, broadcasts } = buildCtx({ lobby, session, senderId: h1 });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'hacker', content: 'rip' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0].recipients).toContain(h2);
   });
 });

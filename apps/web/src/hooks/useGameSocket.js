@@ -38,7 +38,10 @@ export default function useGameSocket(socket) {
 
     const handlePlayerEliminated = (payload) => {
       const state = storeRef.current.getState();
-      // Only trigger if this is a new elimination (not a replay)
+      // Only trigger the BSOD overlay for OUR OWN elimination — otherwise
+      // every other player's death would re-fire the overlay on an already-dead
+      // spectator and hide the chat UI.
+      if (payload.playerId !== state.selfId) return;
       if (
         state.eliminationCycle === null ||
         payload.cycle > state.eliminationCycle

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useWindowStore from './store/windowStore';
 import { getAppConfig } from './config/apps.config';
 import Desktop from './components/Desktop/Desktop';
@@ -9,7 +9,6 @@ import Window from './components/Window/Window';
 import SideTaskModal from './components/SideTaskModal';
 import useGameStore from '../stores/gameStore';
 import useThemeEffect from '../hooks/useThemeEffect';
-import EliminationSequence from '../components/EliminationSequence/index';
 import WinScreen from '../components/WinScreen/index';
 
 import '../themes/xp/index.css';
@@ -119,27 +118,22 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
 
   // Game state hooks
   useThemeEffect();
-  const eliminationCause = useGameStore((s) => s.eliminationCause);
-  const eliminationCycle = useGameStore((s) => s.eliminationCycle);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const status = useGameStore((s) => s.status);
-  const [eliminationPlayed, setEliminationPlayed] = useState(null);
-
-  const showElimination =
-    eliminationCause !== null &&
-    !selfAlive &&
-    eliminationCycle !== null &&
-    eliminationPlayed !== eliminationCycle;
-
-  const handleEliminationComplete = useCallback(() => {
-    setEliminationPlayed(eliminationCycle);
-  }, [eliminationCycle]);
 
   // Side tasks: typing + attention-check + open-2048
   const [sideTask, setSideTask] = useState(null);
 
+  // Dismiss any pending side task the moment the player dies so spectators
+  // aren't harassed by typing/attention prompts after elimination.
+  useEffect(() => {
+    if (!selfAlive && sideTask) setSideTask(null);
+  }, [selfAlive, sideTask]);
+
   // Randomly schedule notification pings for side tasks
   useEffect(() => {
+    // Spectators (dead players) are not pinged with side tasks.
+    if (!selfAlive) return;
     // Do not schedule a new ping while a task is active
     if (sideTask) return;
 
@@ -191,7 +185,7 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
     }, delay);
 
     return () => clearTimeout(timeoutId);
-  }, [sideTask]);
+  }, [sideTask, selfAlive]);
 
   const handleSideTaskSubmit = (payload) => {
     if (!sideTask) return 'FAIL';
@@ -282,12 +276,6 @@ export default function OS({ wallpaper = defaultWallpaper, onReturnToLobby }) {
         />
       )}
 
-      {showElimination && (
-        <EliminationSequence
-          cause={eliminationCause}
-          onComplete={handleEliminationComplete}
-        />
-      )}
 
       {(status === 'FRIENDS_WIN' || status === 'HACKERS_WIN') && (
         <WinScreen onReturnToLobby={onReturnToLobby} />

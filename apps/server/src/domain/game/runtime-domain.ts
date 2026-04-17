@@ -538,9 +538,9 @@ function eliminatePlayer(
   session.pendingIntents = session.pendingIntents.filter(
     (intent) => intent.playerId !== playerId,
   );
-  for (const channel of Object.values(session.channels)) {
-    channel.members = channel.members.filter((memberId) => memberId !== playerId);
-  }
+  // Spectators keep their channel memberships so they can continue reading
+  // GLOBAL, their DMs, and (for dead Hackers) the HACKER channel. Sending is
+  // already blocked by the PLAYER_NOT_ALIVE gate in the SEND_MESSAGE handler.
 
   const lobbyPlayer = lobby.players.find((player) => player.playerId === playerId);
   if (lobbyPlayer) {

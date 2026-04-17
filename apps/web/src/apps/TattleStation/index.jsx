@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import useGameStore, { selectIsHacker } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
@@ -11,19 +12,33 @@ function TattleStationComponent({ windowId, socket }) {
   const phase = useGameStore((s) => s.phase);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const channels = useGameStore((s) => s.channels);
+  const players = useGameStore((s) => s.players);
+  const selfId = useGameStore((s) => s.selfId);
   const systemEvents = useGameStore((s) => s.systemEvents);
   const isHacker = useGameStore(selectIsHacker);
+  const activeId = useGameStore((s) => s.activeTattleChannelId);
+  const markRead = useGameStore((s) => s.markRead);
 
-  const globalChannelId = Object.keys(channels).find(
-    (id) => channels[id].type === 'GLOBAL'
-  );
+  const activeChannel = channels[activeId];
+  let activeLabel = 'Global';
+  if (activeChannel && activeChannel.type === 'PRIVATE') {
+    const otherId = activeChannel.members.find((id) => id !== selfId);
+    activeLabel = players[otherId]?.displayName || 'Direct Message';
+  }
+
+  useEffect(() => {
+    if (activeId) markRead(activeId);
+  }, [activeId, markRead]);
 
   const showVotePanel = phase === 'DAY_VOTE' && selfAlive;
   const showNightUi = phase === 'NIGHT_ACTIONS' && selfAlive;
+  // Spectators (dead players) stay on the chat pane in every phase so they
+  // can keep reading DMs/global while the round resolves.
   const showSystemEvents =
-    phase === 'DAY_RESOLVE' ||
-    phase === 'NIGHT_RESOLVE' ||
-    phase === 'NIGHT_REVEAL';
+    selfAlive &&
+    (phase === 'DAY_RESOLVE' ||
+      phase === 'NIGHT_RESOLVE' ||
+      phase === 'NIGHT_REVEAL');
 
   const centerPanel = (() => {
     if (showVotePanel) return <VotePanel />;
@@ -34,7 +49,26 @@ function TattleStationComponent({ windowId, socket }) {
         <NightSpectatorView />
       );
     if (showSystemEvents) return <SystemEventFeed events={systemEvents} />;
-    if (globalChannelId) return <ChatPanel channelId={globalChannelId} />;
+    if (activeChannel) {
+      return (
+        <>
+          <div
+            style={{
+              padding: '4px 8px',
+              background: '#ece9d8',
+              borderBottom: '1px solid #aca899',
+              fontFamily: 'Tahoma, sans-serif',
+              fontSize: 11,
+              fontWeight: 'bold',
+              color: '#0054e3',
+            }}
+          >
+            {activeLabel}
+          </div>
+          <ChatPanel channelId={activeId} />
+        </>
+      );
+    }
     return (
       <div style={{ padding: 12, color: '#999' }}>
         Waiting for game to start...
