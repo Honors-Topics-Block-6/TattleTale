@@ -50,6 +50,35 @@ export enum SystemEventType {
   NIGHT_KILL_PROTECTED = 'NIGHT_KILL_PROTECTED',
 }
 
+/**
+ * Wire-level error codes returned in HandlerResult / CommandFailure payloads.
+ * Defined here so server and client share a single source of truth and neither
+ * side needs string literals or custom constants.
+ *
+ * Naming convention: SCREAMING_SNAKE, verb-free noun phrase describing the
+ * rejection reason (matches existing codes in ws-message-handler.ts).
+ */
+export enum MessageErrorCode {
+  /** Channel does not exist in the current session. */
+  CHANNEL_NOT_FOUND = 'CHANNEL_NOT_FOUND',
+  /** Sender is not a member of the target channel. */
+  NOT_CHANNEL_MEMBER = 'NOT_CHANNEL_MEMBER',
+  /** Channel is locked (by a role ability or phase transition). */
+  CHANNEL_LOCKED = 'CHANNEL_LOCKED',
+  /**
+   * A PRIVATE (DM) channel cannot be used in the current game phase.
+   * PMs are only allowed during DAY_OPEN. They are disabled during DAY_VOTE
+   * (which collapses Final Statements + Voting from the design doc),
+   * DAY_RESOLVE, and all night phases. Distinct from CHANNEL_LOCKED so
+   * clients can surface a phase-specific message rather than a generic lock.
+   */
+  PM_PHASE_RESTRICTED = 'PM_PHASE_RESTRICTED',
+  /** Message body is empty after trimming. */
+  EMPTY_MESSAGE = 'EMPTY_MESSAGE',
+  /** Message body exceeds the 500-character limit. */
+  MESSAGE_TOO_LONG = 'MESSAGE_TOO_LONG',
+}
+
 export enum LobbyStatus {
   WAITING = 'WAITING',
   IN_GAME = 'IN_GAME',

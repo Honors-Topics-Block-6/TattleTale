@@ -11,7 +11,7 @@ const CHANNEL_ICONS = {
   SYSTEM: '!',
 };
 
-function getChannelLabel(channel, players, selfId) {
+function getChannelLabel(channel) {
   switch (channel.type) {
     case 'GLOBAL':
       return 'Global';
@@ -23,13 +23,8 @@ function getChannelLabel(channel, players, selfId) {
       return 'Temp Chat';
     case 'SYSTEM':
       return 'System';
-    case 'PRIVATE': {
-      const otherId = channel.members.find((m) => m !== selfId);
-      const suffix = channel.id ? ` (${channel.id.slice(-4)})` : '';
-      if (!otherId) return `Private${suffix}`;
-      const other = players[otherId];
-      return other?.displayName ?? `Private${suffix}`;
-    }
+    case 'PRIVATE':
+      return channel.label ?? 'Private';
     default:
       return channel.type;
   }
@@ -65,13 +60,17 @@ export default function ChannelSidebar() {
 
   const channelList = Object.values(channels);
 
-  // SYSTEM pinned first, rest sorted by last message time descending
+  // SYSTEM pinned first, then non-PRIVATE/non-SYSTEM sorted by last message,
+  // then PRIVATE channels grouped under a "Direct Messages" header.
   const systemChannels = channelList.filter((c) => c.type === 'SYSTEM');
-  const otherChannels = channelList
-    .filter((c) => c.type !== 'SYSTEM')
+  const mainChannels = channelList
+    .filter((c) => c.type !== 'SYSTEM' && c.type !== 'PRIVATE')
+    .sort((a, b) => getLastMessageTimestamp(b) - getLastMessageTimestamp(a));
+  const privateChannels = channelList
+    .filter((c) => c.type === 'PRIVATE')
     .sort((a, b) => getLastMessageTimestamp(b) - getLastMessageTimestamp(a));
 
-  const sorted = [...systemChannels, ...otherChannels];
+  const sorted = [...systemChannels, ...mainChannels, ...privateChannels];
 
   const focusRowAt = (index) => {
     const clamped = Math.max(0, Math.min(sorted.length - 1, index));
@@ -119,8 +118,13 @@ export default function ChannelSidebar() {
         const isActive = channel.id === activeChannelId;
         const unread = unreadCounts[channel.id] || 0;
         const icon = CHANNEL_ICONS[channel.type] ?? '#';
-        const label = getChannelLabel(channel, players, selfId);
+        const label = getChannelLabel(channel);
         const partnerEliminated = isPrivatePartnerEliminated(channel, players, selfId);
+
+        // Render "Direct Messages" section header before the first PRIVATE channel
+        const isFirstPrivate =
+          channel.type === 'PRIVATE' &&
+          (index === 0 || sorted[index - 1].type !== 'PRIVATE');
         const isLocked = channel.locked;
 
         let rowStyle = {
@@ -192,8 +196,25 @@ export default function ChannelSidebar() {
         const ariaLabel = `${label}${isLocked ? ', locked' : ''}${unread > 0 ? `, ${unread} unread` : ''}`;
 
         return (
+          <div key={channel.id}>
+          {isFirstPrivate && (
+            <div
+              style={{
+                padding: '6px 6px 2px',
+                fontSize: 9,
+                fontWeight: 'bold',
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                color: '#888',
+                borderTop: '1px solid #d4d0c8',
+                marginTop: 4,
+              }}
+              aria-hidden="true"
+            >
+              Direct Messages
+            </div>
+          )}
           <div
-            key={channel.id}
             ref={(el) => {
               if (el) {
                 rowRefs.current.set(channel.id, el);
@@ -263,6 +284,7 @@ export default function ChannelSidebar() {
                 {unread > 99 ? '99+' : unread}
               </span>
             )}
+          </div>
           </div>
         );
       })}

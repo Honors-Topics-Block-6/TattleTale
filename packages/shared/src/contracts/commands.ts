@@ -36,6 +36,11 @@ export interface StartGameCommand {
   reconnectToken: string;
 }
 
+export interface SendMessageIntentPayload {
+  channelId: string;
+  content: string;
+}
+
 export interface VoteIntentPayload {
   targetPlayerId: string | null;
 }
@@ -53,7 +58,7 @@ export interface SubmitIntentCommand {
   reconnectToken: string;
   intent: {
     type: IntentType;
-    payload: VoteIntentPayload | NightActionIntentPayload | Record<string, unknown>;
+    payload: SendMessageIntentPayload | VoteIntentPayload | NightActionIntentPayload | Record<string, unknown>;
     clientTimestamp: string;
   };
 }

@@ -29,11 +29,14 @@ export default function ChatPanel({ channelId }) {
   const channel = useGameStore((s) => s.channels[channelId]);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const selfId = useGameStore((s) => s.selfId);
+  const phase = useGameStore((s) => s.phase);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef(null);
 
   const messages = channel?.messages || [];
   const isLocked = channel?.locked ?? false;
+  const isPrivatePhaseRestricted =
+    channel?.type === 'PRIVATE' && phase !== 'DAY_OPEN';
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -42,7 +45,7 @@ export default function ChatPanel({ channelId }) {
 
   const handleSend = async () => {
     const content = inputValue.trim();
-    if (!content || isLocked || !selfAlive) return;
+    if (!content || isLocked || !selfAlive || isPrivatePhaseRestricted) return;
 
     try {
       await socket.send('submitIntent', {
@@ -146,6 +149,20 @@ export default function ChatPanel({ channelId }) {
               }}
             >
               Channel locked
+            </div>
+          ) : isPrivatePhaseRestricted ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              Private messages are disabled during this phase
             </div>
           ) : (
             <>

@@ -2,6 +2,7 @@ import {
   ChannelType,
   IntentType,
   LobbyStatus,
+  MessageErrorCode,
   NightActionType,
   Phase,
   SessionStatus,
@@ -684,6 +685,10 @@ export async function handleSubmitIntent(
       }
       if (!channel.members.includes(actorId)) {
         return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
+      }
+      // PRIVATE (DM) channels are only open during DAY_OPEN.
+      if (channel.type === ChannelType.PRIVATE && session.phase !== Phase.DAY_OPEN) {
+        return fail(MessageErrorCode.PM_PHASE_RESTRICTED, 'Private messages are only allowed during the day discussion phase.');
       }
       if (channel.locked) {
         return fail('CHANNEL_LOCKED', 'This channel is locked.');

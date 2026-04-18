@@ -68,6 +68,133 @@ describe('gameStore night-kill session fields', () => {
   });
 });
 
+describe('gameStore — PRIVATE channel / DM sync', () => {
+  beforeEach(() => {
+    useGameStore.setState(useGameStore.getInitialState());
+  });
+
+  function makeView(channelOverrides = []) {
+    return {
+      gameId: 'game-1',
+      lobbyCode: 'ABCDE',
+      status: 'ACTIVE',
+      phase: 'DAY_OPEN',
+      cycle: 1,
+      currentPhaseEndsAt: '2026-03-17T00:01:00.000Z',
+      phaseDurationSeconds: 60,
+      players: [
+        { playerId: 'p1', displayName: 'Alice', alive: true, connected: true },
+        { playerId: 'p2', displayName: 'Bob', alive: true, connected: true },
+        { playerId: 'p3', displayName: 'Carol', alive: true, connected: true },
+      ],
+      channels: channelOverrides,
+      myPendingIntentTypes: [],
+      systemEvents: [],
+      myRole: 'unknown',
+      myTeam: 'FRIENDS',
+      voteTally: null,
+      myTeammates: [],
+      hackerNightView: null,
+    };
+  }
+
+  it('syncSessionState with PRIVATE channels populates state.channels with label field', () => {
+    const view = makeView([
+      { id: 'global', type: 'GLOBAL', members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null, label: null },
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+    ]);
+
+    useGameStore.setState({ selfId: 'p1' });
+    useGameStore.getState().syncSessionState(view);
+
+    const state = useGameStore.getState();
+    expect(state.channels['dm-p1-p2']).toBeDefined();
+    expect(state.channels['dm-p1-p2'].label).toBe('Bob');
+  });
+
+  it('syncSessionState re-sync updates label field on existing channel', () => {
+    // First sync
+    const view1 = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+    ]);
+    useGameStore.setState({ selfId: 'p1' });
+    useGameStore.getState().syncSessionState(view1);
+    expect(useGameStore.getState().channels['dm-p1-p2'].label).toBe('Bob');
+
+    // Second sync with updated label (edge case: display name change scenario)
+    const view2 = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bobby' },
+    ]);
+    useGameStore.getState().syncSessionState(view2);
+    expect(useGameStore.getState().channels['dm-p1-p2'].label).toBe('Bobby');
+  });
+
+  it('auto-select prefers SYSTEM > GLOBAL > first non-PRIVATE; never picks PRIVATE first', () => {
+    // Only PRIVATE channels present — should still pick the PRIVATE (last resort) rather
+    // than null, but must prefer non-PRIVATE when available.
+    const viewOnlyPrivate = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+    ]);
+    useGameStore.setState({ selfId: 'p1', activeChannelId: null });
+    useGameStore.getState().syncSessionState(viewOnlyPrivate);
+    // When only PRIVATE channels exist, fallback to first channel (view.channels[0])
+    // per the store's auto-select logic.
+    expect(useGameStore.getState().activeChannelId).toBe('dm-p1-p2');
+  });
+
+  it('auto-select picks SYSTEM over GLOBAL and PRIVATE', () => {
+    const view = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+      { id: 'global', type: 'GLOBAL', members: ['p1', 'p2'], locked: false, expiresAt: null, label: null },
+      { id: 'system', type: 'SYSTEM', members: ['p1', 'p2'], locked: false, expiresAt: null, label: null },
+    ]);
+    useGameStore.setState({ selfId: 'p1', activeChannelId: null });
+    useGameStore.getState().syncSessionState(view);
+    expect(useGameStore.getState().activeChannelId).toBe('system');
+  });
+
+  it('auto-select picks GLOBAL when no SYSTEM exists (and not PRIVATE first)', () => {
+    const view = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+      { id: 'global', type: 'GLOBAL', members: ['p1', 'p2'], locked: false, expiresAt: null, label: null },
+    ]);
+    useGameStore.setState({ selfId: 'p1', activeChannelId: null });
+    useGameStore.getState().syncSessionState(view);
+    expect(useGameStore.getState().activeChannelId).toBe('global');
+  });
+
+  it('removing a PRIVATE channel via re-sync clears activeChannelId if it pointed there', () => {
+    // Set up with a DM as the active channel
+    const view1 = makeView([
+      { id: 'dm-p1-p2', type: 'PRIVATE', members: ['p1', 'p2'], locked: false, expiresAt: null, label: 'Bob' },
+    ]);
+    useGameStore.setState({ selfId: 'p1', activeChannelId: null });
+    useGameStore.getState().syncSessionState(view1);
+    // Force-set active to the DM
+    useGameStore.setState({ activeChannelId: 'dm-p1-p2' });
+    expect(useGameStore.getState().activeChannelId).toBe('dm-p1-p2');
+
+    // Re-sync without that channel (player got eliminated, channel removed from view)
+    const view2 = makeView([
+      { id: 'global', type: 'GLOBAL', members: ['p1'], locked: false, expiresAt: null, label: null },
+    ]);
+    useGameStore.getState().syncSessionState(view2);
+    // After removal, activeChannelId must not point to the removed channel
+    expect(useGameStore.getState().activeChannelId).not.toBe('dm-p1-p2');
+    // It should auto-select to an available channel (global here)
+    expect(useGameStore.getState().activeChannelId).toBe('global');
+  });
+
+  it('non-PRIVATE channel has label null after sync', () => {
+    const view = makeView([
+      { id: 'global', type: 'GLOBAL', members: ['p1', 'p2'], locked: false, expiresAt: null, label: null },
+    ]);
+    useGameStore.setState({ selfId: 'p1' });
+    useGameStore.getState().syncSessionState(view);
+    expect(useGameStore.getState().channels['global'].label).toBeNull();
+  });
+});
+
 describe('gameStore selectors', () => {
   beforeEach(() => {
     useGameStore.setState(useGameStore.getInitialState());

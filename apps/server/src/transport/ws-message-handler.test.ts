@@ -391,6 +391,164 @@ describe('handleSubmitIntent — SUBMIT_VOTE', () => {
   });
 });
 
+describe('handleSubmitIntent — SEND_MESSAGE on PRIVATE (DM) channels', () => {
+  // Helper: find the DM channel ID for a given player pair in the session.
+  function getDmChannelId(session: GameState, idA: string, idB: string): string {
+    return `dm-${[idA, idB].sort().join('-')}`;
+  }
+
+  it('PRIVATE channel SEND_MESSAGE succeeds during Phase.DAY_OPEN', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    const [p1, p2] = ['p1', 'p2'];
+    const channelId = getDmChannelId(session, p1, p2);
+    // The DM channel was created by buildSessionFromLobby
+    expect(session.channels[channelId]).toBeDefined();
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: p1 });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello!' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('PRIVATE channel SEND_MESSAGE rejected with PM_PHASE_RESTRICTED during DAY_VOTE', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_VOTE);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PM_PHASE_RESTRICTED' });
+  });
+
+  it('PRIVATE channel SEND_MESSAGE rejected with PM_PHASE_RESTRICTED during NIGHT_ACTIONS', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PM_PHASE_RESTRICTED' });
+  });
+
+  it('PRIVATE channel SEND_MESSAGE rejected with PM_PHASE_RESTRICTED during NIGHT_RESOLVE', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_RESOLVE);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PM_PHASE_RESTRICTED' });
+  });
+
+  it('PRIVATE channel SEND_MESSAGE rejected with PM_PHASE_RESTRICTED during NIGHT_REVEAL', async () => {
+    const { lobby, session } = setupSession(Phase.NIGHT_REVEAL);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PM_PHASE_RESTRICTED' });
+  });
+
+  it('PRIVATE channel SEND_MESSAGE rejected with PM_PHASE_RESTRICTED during DAY_RESOLVE', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_RESOLVE);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'hello' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'PM_PHASE_RESTRICTED' });
+  });
+
+  it('non-member of PRIVATE channel hits NOT_CHANNEL_MEMBER before phase check (order guard)', async () => {
+    // p3 is not a member of the dm-p1-p2 channel; even in a restricted phase this
+    // must hit NOT_CHANNEL_MEMBER first (guard ordering).
+    const { lobby, session } = setupSession(Phase.DAY_VOTE);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    // Confirm p3 is not in the channel
+    expect(session.channels[channelId].members).not.toContain('p3');
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p3' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'sneaky' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'NOT_CHANNEL_MEMBER' });
+  });
+
+  it('eliminated player removed from channel members hits NOT_CHANNEL_MEMBER on PM attempt', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    const channelId = getDmChannelId(session, 'p1', 'p2');
+    // Simulate elimination: remove p1 from channel members (as processElimination does)
+    session.channels[channelId].members = session.channels[channelId].members.filter(
+      (id) => id !== 'p1',
+    );
+    session.players['p1'].alive = false;
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId, content: 'still here?' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    // Dead players are caught by the PLAYER_NOT_ALIVE check before the channel
+    // member check — either way, the send must be rejected.
+    expect(result.ok).toBe(false);
+    expect(['PLAYER_NOT_ALIVE', 'NOT_CHANNEL_MEMBER']).toContain(
+      (result as { ok: false; code: string }).code,
+    );
+  });
+
+  it('GLOBAL channel SEND_MESSAGE during DAY_VOTE still succeeds (no regression)', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_VOTE);
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'global', content: 'everyone hear me?' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('handleSubmitIntent — hacker channel privacy', () => {
   it('rejects a Friend SEND_MESSAGE to the hacker channel with NOT_IN_CHANNEL', async () => {
     const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
