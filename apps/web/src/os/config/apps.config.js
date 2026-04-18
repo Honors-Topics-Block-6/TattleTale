@@ -9,7 +9,6 @@ import Milestone2048 from '../../apps/Milestone2048';
 import AngryBirds from '../../apps/AngryBirds';
 import TattleStation from '../../apps/TattleStation/index';
 import DMWindow from '../../apps/DMWindow/index';
-import HackerTerminal from '../../apps/HackerTerminal/index';
 
 // Registry of all available apps
 const appRegistry = {
@@ -21,7 +20,6 @@ const appRegistry = {
   [AngryBirds.id]: AngryBirds,
   [TattleStation.id]: TattleStation,
   [DMWindow.id]: DMWindow,
-  [HackerTerminal.id]: HackerTerminal,
 };
 
 // Default folder icon

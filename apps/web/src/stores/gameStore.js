@@ -24,6 +24,7 @@ const initialState = {
   unreadCounts: {},
   popHistory: {},
   removedChannelIds: [],
+  activeChannelId: null,
 
   // Vote slice
   pendingSelection: null,
@@ -101,6 +102,20 @@ const useGameStore = create(
     markPopped: (channelId) =>
       set((state) => {
         state.popHistory[channelId] = true;
+      }),
+
+    setActiveChannel: (channelId) =>
+      set((state) => {
+        if (!state.channels[channelId]) {
+          if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+            console.warn(
+              `setActiveChannel: unknown channelId "${channelId}" — ignored`
+            );
+          }
+          return;
+        }
+        state.activeChannelId = channelId;
+        state.unreadCounts[channelId] = 0;
       }),
 
     prepareForReconnect: () =>
@@ -222,6 +237,13 @@ const useGameStore = create(
           }
         }
         state.removedChannelIds = removed;
+
+        // Reset active channel to null if it was removed; the null-check below
+        // then handles both this case and initial load with a single fallback.
+        if (removed.includes(state.activeChannelId)) {
+          state.activeChannelId = null;
+        }
+
         // Add/update channels from server
         for (const ch of view.channels) {
           if (state.channels[ch.id]) {
@@ -241,6 +263,14 @@ const useGameStore = create(
               messages: [],
             };
           }
+        }
+
+        // Auto-select when no active channel (initial load, or active was removed above).
+        // Prefer SYSTEM, then GLOBAL, then the first available channel.
+        if (state.activeChannelId === null) {
+          const system = view.channels.find((c) => c.type === 'SYSTEM');
+          const global = view.channels.find((c) => c.type === 'GLOBAL');
+          state.activeChannelId = system?.id ?? global?.id ?? view.channels[0]?.id ?? null;
         }
 
         // Vote slice
