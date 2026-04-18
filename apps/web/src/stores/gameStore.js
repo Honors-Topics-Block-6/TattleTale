@@ -106,7 +106,14 @@ const useGameStore = create(
 
     setActiveChannel: (channelId) =>
       set((state) => {
-        if (!state.channels[channelId]) return;
+        if (!state.channels[channelId]) {
+          if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+            console.warn(
+              `setActiveChannel: unknown channelId "${channelId}" — ignored`
+            );
+          }
+          return;
+        }
         state.activeChannelId = channelId;
         state.unreadCounts[channelId] = 0;
       }),
@@ -258,10 +265,12 @@ const useGameStore = create(
           }
         }
 
-        // Auto-select SYSTEM when no active channel (initial load, or active was removed above)
+        // Auto-select when no active channel (initial load, or active was removed above).
+        // Prefer SYSTEM, then GLOBAL, then the first available channel.
         if (state.activeChannelId === null) {
-          const systemId = view.channels.find((c) => c.type === 'SYSTEM')?.id ?? null;
-          state.activeChannelId = systemId;
+          const system = view.channels.find((c) => c.type === 'SYSTEM');
+          const global = view.channels.find((c) => c.type === 'GLOBAL');
+          state.activeChannelId = system?.id ?? global?.id ?? view.channels[0]?.id ?? null;
         }
 
         // Vote slice

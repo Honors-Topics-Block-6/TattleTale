@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import useGameStore from '../../stores/gameStore';
 
 // Text glyphs per channel type — retro messenger aesthetic
@@ -59,6 +60,9 @@ export default function ChannelSidebar() {
   const activeChannelId = useGameStore((s) => s.activeChannelId);
   const setActiveChannel = useGameStore((s) => s.setActiveChannel);
 
+  const [focusedId, setFocusedId] = useState(null);
+  const rowRefs = useRef(new Map());
+
   const channelList = Object.values(channels);
 
   // SYSTEM pinned first, rest sorted by last message time descending
@@ -68,6 +72,14 @@ export default function ChannelSidebar() {
     .sort((a, b) => getLastMessageTimestamp(b) - getLastMessageTimestamp(a));
 
   const sorted = [...systemChannels, ...otherChannels];
+
+  const focusRowAt = (index) => {
+    const clamped = Math.max(0, Math.min(sorted.length - 1, index));
+    const target = sorted[clamped];
+    if (!target) return;
+    const el = rowRefs.current.get(target.id);
+    if (el) el.focus();
+  };
 
   return (
     <div
@@ -102,7 +114,8 @@ export default function ChannelSidebar() {
         </div>
       )}
 
-      {sorted.map((channel) => {
+      <div role="list" aria-label="Channels">
+      {sorted.map((channel, index) => {
         const isActive = channel.id === activeChannelId;
         const unread = unreadCounts[channel.id] || 0;
         const icon = CHANNEL_ICONS[channel.type] ?? '#';
@@ -128,6 +141,12 @@ export default function ChannelSidebar() {
         } else {
           rowStyle.borderLeft = '2px solid transparent';
           rowStyle.paddingLeft = 4;
+        }
+
+        const isFocused = focusedId === channel.id;
+        if (isFocused) {
+          rowStyle.outline = '2px solid #0054e3';
+          rowStyle.outlineOffset = -2;
         }
 
         let labelStyle = {
@@ -170,25 +189,51 @@ export default function ChannelSidebar() {
           iconStyle.opacity = 0.45;
         }
 
+        const ariaLabel = `${label}${isLocked ? ', locked' : ''}${unread > 0 ? `, ${unread} unread` : ''}`;
+
         return (
           <div
             key={channel.id}
-            role="button"
+            ref={(el) => {
+              if (el) {
+                rowRefs.current.set(channel.id, el);
+              } else {
+                rowRefs.current.delete(channel.id);
+              }
+            }}
+            role="listitem"
             tabIndex={0}
+            aria-label={ariaLabel}
+            aria-current={isActive ? 'true' : undefined}
             style={rowStyle}
             onClick={() => setActiveChannel(channel.id)}
+            onFocus={() => setFocusedId(channel.id)}
+            onBlur={() => setFocusedId((cur) => (cur === channel.id ? null : cur))}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 setActiveChannel(channel.id);
+              } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                focusRowAt(index + 1);
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                focusRowAt(index - 1);
+              } else if (e.key === 'Home') {
+                e.preventDefault();
+                focusRowAt(0);
+              } else if (e.key === 'End') {
+                e.preventDefault();
+                focusRowAt(sorted.length - 1);
               }
             }}
             title={isLocked ? `${label} (locked)` : label}
           >
-            <span style={iconStyle}>{icon}</span>
+            <span style={iconStyle} aria-hidden="true">{icon}</span>
             <span style={labelStyle}>{label}</span>
             {isLocked && (
               <span
+                aria-hidden="true"
                 style={{
                   color: '#999',
                   fontSize: 9,
@@ -221,6 +266,7 @@ export default function ChannelSidebar() {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
