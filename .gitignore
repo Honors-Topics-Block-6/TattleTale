@@ -43,3 +43,6 @@ coverage/
 # Cache
 .cache/
 .eslintcache
+
+# Wrangler
+.wrangler/

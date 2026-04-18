@@ -1,6 +1,8 @@
 import useGameStore from '../../stores/gameStore';
+import { useSocket } from '../../lib/SocketContext';
 
-export default function NightPanel({ socket }) {
+export default function NightPanel() {
+  const socket = useSocket();
   const players = useGameStore((s) => s.players);
   const selfId = useGameStore((s) => s.selfId);
   const myTeammates = useGameStore((s) => s.myTeammates);
@@ -20,9 +22,14 @@ export default function NightPanel({ socket }) {
   );
 
   const handleConfirm = async () => {
-    if (!pendingSelection || hasSubmitted) return;
+    console.log('[DIAG NightPanel] handleConfirm clicked. pendingSelection=', pendingSelection, 'hasSubmitted=', hasSubmitted, 'hackerNightView=', hackerNightView);
+    if (!pendingSelection || hasSubmitted) {
+      console.log('[DIAG NightPanel] handleConfirm early-return (no selection or already submitted)');
+      return;
+    }
     try {
-      await socket.send('submitIntent', {
+      console.log('[DIAG NightPanel] sending submitIntent HACKER_KILL target=', pendingSelection);
+      const resp = await socket.send('submitIntent', {
         intent: {
           type: 'SUBMIT_NIGHT_ACTION',
           payload: {
@@ -33,8 +40,9 @@ export default function NightPanel({ socket }) {
           clientTimestamp: new Date().toISOString(),
         },
       });
+      console.log('[DIAG NightPanel] submitIntent response:', resp);
     } catch (err) {
-      console.error('Failed to submit night action:', err);
+      console.error('[DIAG NightPanel] Failed to submit night action:', err, 'code=', err?.code);
     }
   };
 
