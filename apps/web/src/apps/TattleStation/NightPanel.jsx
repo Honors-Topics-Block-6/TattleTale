@@ -22,14 +22,9 @@ export default function NightPanel() {
   );
 
   const handleConfirm = async () => {
-    console.log('[DIAG NightPanel] handleConfirm clicked. pendingSelection=', pendingSelection, 'hasSubmitted=', hasSubmitted, 'hackerNightView=', hackerNightView);
-    if (!pendingSelection || hasSubmitted) {
-      console.log('[DIAG NightPanel] handleConfirm early-return (no selection or already submitted)');
-      return;
-    }
+    if (!pendingSelection || hasSubmitted) return;
     try {
-      console.log('[DIAG NightPanel] sending submitIntent HACKER_KILL target=', pendingSelection);
-      const resp = await socket.send('submitIntent', {
+      await socket.send('submitIntent', {
         intent: {
           type: 'SUBMIT_NIGHT_ACTION',
           payload: {
@@ -40,9 +35,8 @@ export default function NightPanel() {
           clientTimestamp: new Date().toISOString(),
         },
       });
-      console.log('[DIAG NightPanel] submitIntent response:', resp);
     } catch (err) {
-      console.error('[DIAG NightPanel] Failed to submit night action:', err, 'code=', err?.code);
+      console.error('Failed to submit night action:', err);
     }
   };
 

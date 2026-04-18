@@ -754,35 +754,25 @@ export async function handleSubmitIntent(
     // Validate SUBMIT_NIGHT_ACTION payload
     if (intent.type === IntentType.SUBMIT_NIGHT_ACTION) {
       const nightPayload = intent.payload as NightActionIntentPayload;
-      // eslint-disable-next-line no-console
-      console.log('[DIAG submitIntent] actor=', actorId, 'phase=', session.phase, 'cycle=', session.cycle, 'payload=', JSON.stringify(nightPayload));
 
       // Validate payload shape
       if (
         typeof nightPayload?.actionType !== 'string'
         || (nightPayload.targetPlayerId !== null && typeof nightPayload.targetPlayerId !== 'string')
       ) {
-        // eslint-disable-next-line no-console
-        console.log('[DIAG submitIntent] REJECT INVALID_PAYLOAD');
         return fail('INVALID_PAYLOAD', 'Night action payload is malformed.');
       }
 
       // actionType must be a known NightActionType
       if (!Object.values(NightActionType).includes(nightPayload.actionType as NightActionType)) {
-        // eslint-disable-next-line no-console
-        console.log('[DIAG submitIntent] REJECT UNSUPPORTED_ACTION', nightPayload.actionType);
         return fail('UNSUPPORTED_ACTION', `Unknown night action type: ${nightPayload.actionType}.`);
       }
       const actionType = nightPayload.actionType as NightActionType;
 
       const sender = session.players[actorId];
       if (!sender || !sender.alive) {
-        // eslint-disable-next-line no-console
-        console.log('[DIAG submitIntent] REJECT NOT_AUTHORIZED (no sender or dead)');
         return fail('NOT_AUTHORIZED', 'Only living players can submit night actions.');
       }
-      // eslint-disable-next-line no-console
-      console.log('[DIAG submitIntent] sender roleId=', sender.roleId, 'team=', sender.team, 'alive=', sender.alive);
 
       // Role-based authorization (falls back to team-based for HACKER_KILL until roles are assigned).
       const roleCheck = validateRoleAction({
@@ -791,8 +781,6 @@ export async function handleSubmitIntent(
         actionType,
       });
       if (!roleCheck.allowed) {
-        // eslint-disable-next-line no-console
-        console.log('[DIAG submitIntent] REJECT role check', roleCheck);
         return fail(
           'NOT_AUTHORIZED',
           `Your role cannot submit ${actionType}.`,
@@ -807,12 +795,8 @@ export async function handleSubmitIntent(
         : nightPayload.targetPlayerId;
       const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
       if (!targetValidation.valid) {
-        // eslint-disable-next-line no-console
-        console.log('[DIAG submitIntent] REJECT target validation', targetValidation.reason, 'resolvedTargetId=', resolvedTargetId);
         return fail('INVALID_TARGET', targetValidation.reason);
       }
-      // eslint-disable-next-line no-console
-      console.log('[DIAG submitIntent] validation OK, will append intent');
     }
 
     const now = new Date().toISOString();
@@ -826,15 +810,11 @@ export async function handleSubmitIntent(
     });
 
     if (!appendResult.accepted) {
-      // eslint-disable-next-line no-console
-      console.log('[DIAG submitIntent] appendIntent rejected:', appendResult.reason);
       return fail(
         'VOTE_ALREADY_SUBMITTED',
         'Only one vote submission is allowed per alive player each cycle.',
       );
     }
-    // eslint-disable-next-line no-console
-    console.log('[DIAG submitIntent] appended intent id=', appendResult.intent.id, 'pendingIntents count now=', session.pendingIntents.length);
 
     // After appending the intent, reconcile to handle any phase transitions.
     // This ensures pending intents are resolved with the new submission included.
