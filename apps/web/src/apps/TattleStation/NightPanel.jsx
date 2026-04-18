@@ -1,6 +1,8 @@
 import useGameStore from '../../stores/gameStore';
+import { useSocket } from '../../lib/SocketContext';
 
-export default function NightPanel({ socket }) {
+export default function NightPanel() {
+  const socket = useSocket();
   const players = useGameStore((s) => s.players);
   const selfId = useGameStore((s) => s.selfId);
   const myTeammates = useGameStore((s) => s.myTeammates);

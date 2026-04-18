@@ -272,11 +272,11 @@ describe('runtime-domain', () => {
   });
 
   it('initializeSessionRuntime: hacker channel populated, capped event log, GAME_STARTED carries typed metadata', () => {
-    const lobby = buildLobby(5);
+    const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
     initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
 
-    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=5).
+    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=7).
     expect(session.channels.hacker).toBeDefined();
     expect(session.channels.hacker.type).toBe('HACKER');
     const hackerIds = Object.values(session.players)
@@ -334,7 +334,7 @@ describe('runtime-domain', () => {
 
   describe('resolveHackerKillTarget', () => {
     function setupNightSession() {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
@@ -487,7 +487,7 @@ describe('runtime-domain', () => {
 
   describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
     function toNightActions(now: string) {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', now);
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
@@ -554,7 +554,10 @@ describe('runtime-domain', () => {
       const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
       const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
       const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
-      session.players[friends[0]].alive = false;
+      // Pre-eliminate enough friends so the night kill triggers HACKERS_WIN (2H vs 1F → kill → 2H vs 0F).
+      for (const f of friends.filter((id) => id !== friends[1])) {
+        session.players[f].alive = false;
+      }
 
       for (const h of hackers) {
         appendIntent(session, {
@@ -660,7 +663,7 @@ describe('runtime-domain', () => {
 
   describe('resolveNightActions (priority resolver)', () => {
     function buildNightSession() {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;

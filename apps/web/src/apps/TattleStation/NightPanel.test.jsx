@@ -2,12 +2,19 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import NightPanel from './NightPanel';
 import useGameStore from '../../stores/gameStore';
+import { SocketContext } from '../../lib/SocketContext';
 
 function setStore(patch) {
   useGameStore.setState({
     ...useGameStore.getInitialState(),
     ...patch,
   });
+}
+
+function renderWithSocket(ui, socket = { send: () => {} }) {
+  return render(
+    <SocketContext.Provider value={socket}>{ui}</SocketContext.Provider>
+  );
 }
 
 describe('NightPanel', () => {
@@ -19,7 +26,7 @@ describe('NightPanel', () => {
     setStore({
       hackerNightView: null,
     });
-    const { container } = render(<NightPanel socket={{ send: () => {} }} />);
+    const { container } = renderWithSocket(<NightPanel />);
     expect(container.innerHTML).toBe('');
   });
 
@@ -38,7 +45,7 @@ describe('NightPanel', () => {
       hackerNightView: { tally: {}, confirmedTarget: null },
     });
 
-    render(<NightPanel socket={{ send: () => {} }} />);
+    renderWithSocket(<NightPanel />);
 
     expect(screen.queryByText('P1')).not.toBeInTheDocument(); // self
     expect(screen.queryByText('P2')).not.toBeInTheDocument(); // teammate
@@ -60,7 +67,7 @@ describe('NightPanel', () => {
     });
     const send = vi.fn();
 
-    render(<NightPanel socket={{ send }} />);
+    renderWithSocket(<NightPanel />, { send });
     fireEvent.click(screen.getByText('P3'));
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
 
@@ -91,7 +98,7 @@ describe('NightPanel', () => {
       hackerNightView: { tally: { p3: 2 }, confirmedTarget: null },
     });
 
-    render(<NightPanel socket={{ send: () => {} }} />);
+    renderWithSocket(<NightPanel />);
     expect(screen.getByText('2')).toBeInTheDocument();
   });
 
@@ -107,7 +114,7 @@ describe('NightPanel', () => {
       hackerNightView: { tally: { p3: 1 }, confirmedTarget: 'p3' },
     });
 
-    render(<NightPanel socket={{ send: () => {} }} />);
+    renderWithSocket(<NightPanel />);
     const button = screen.getByRole('button', { name: /submitted/i });
     expect(button).toBeDisabled();
   });

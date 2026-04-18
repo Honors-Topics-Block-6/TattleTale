@@ -652,13 +652,6 @@ export async function handleSubmitIntent(
 
     const session = requireSession(await ctx.repo.getSession());
 
-    // Reconcile first to ensure we're at the right phase
-    const runtimeEvents = await reconcileAndPersist(ctx, lobby, session);
-    if (runtimeEvents.length > 0) {
-      ctx.broadcastLobbyState(lobby);
-      ctx.broadcastSessionState(session);
-    }
-
     if (!session.players[actorId]) {
       return fail('PLAYER_NOT_FOUND', 'Player is not part of the active session.');
     }
@@ -823,9 +816,18 @@ export async function handleSubmitIntent(
       );
     }
 
+    // After appending the intent, reconcile to handle any phase transitions.
+    // This ensures pending intents are resolved with the new submission included.
     session.updatedAt = now;
-    await ctx.repo.saveSession(session);
-    ctx.broadcastSessionState(session);
+    const runtimeEvents = await reconcileAndPersist(ctx, lobby, session);
+    if (runtimeEvents.length > 0) {
+      ctx.broadcastLobbyState(lobby);
+      ctx.broadcastSessionState(session);
+    } else {
+      // No phase transition occurred; just broadcast the session with the new intent
+      await ctx.repo.saveSession(session);
+      ctx.broadcastSessionState(session);
+    }
 
     return ok({
       acceptedIntentId: appendResult.intent.id,

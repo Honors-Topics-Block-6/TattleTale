@@ -7,7 +7,7 @@ import NightPanel from './NightPanel';
 import NightSpectatorView from './NightSpectatorView';
 import SystemEventFeed from './SystemEventFeed';
 
-function TattleStationComponent({ windowId, socket }) {
+function TattleStationComponent() {
   const phase = useGameStore((s) => s.phase);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const channels = useGameStore((s) => s.channels);
@@ -28,11 +28,7 @@ function TattleStationComponent({ windowId, socket }) {
   const centerPanel = (() => {
     if (showVotePanel) return <VotePanel />;
     if (showNightUi)
-      return isHacker ? (
-        <NightPanel socket={socket} />
-      ) : (
-        <NightSpectatorView />
-      );
+      return isHacker ? <NightPanel /> : <NightSpectatorView />;
     if (showSystemEvents) return <SystemEventFeed events={systemEvents} />;
     if (globalChannelId) return <ChatPanel channelId={globalChannelId} />;
     return (
