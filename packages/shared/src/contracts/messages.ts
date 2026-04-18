@@ -43,6 +43,7 @@ export type VotePayload = z.infer<typeof VotePayloadSchema>;
 export const NightActionPayloadSchema = z.object({
   actionType: z.string().min(1),
   targetPlayerId: z.string().nullable().optional(),
+  targetChannelId: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type NightActionPayload = z.infer<typeof NightActionPayloadSchema>;
@@ -66,7 +67,7 @@ export const SubmitIntentPayloadSchema = z.object({
 });
 export type SubmitIntentPayload = z.infer<typeof SubmitIntentPayloadSchema>;
 
-export const PingPayloadSchema = z.object({}).passthrough();
+export const PingPayloadSchema = z.object({}).strict();
 export type PingPayload = z.infer<typeof PingPayloadSchema>;
 
 export const ClientPayloadSchemas = {

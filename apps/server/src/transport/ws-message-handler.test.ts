@@ -277,6 +277,44 @@ describe('handleSubmitIntent — SUBMIT_NIGHT_ACTION', () => {
     });
     expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' });
   });
+
+  it('accepts a night-action submitted at the exact moment the phase timer expires', async () => {
+    // Regression test for commit 76df80d.
+    //
+    // Bug: handleSubmitIntent previously called reconcileAndPersist BEFORE appending the
+    // intent. When the phase timer had already elapsed, reconcile advanced the phase from
+    // NIGHT_ACTIONS → the next phase. isIntentAllowedInPhase then saw the new (non-night)
+    // phase and rejected the legitimate in-flight action with INTENT_NOT_ALLOWED_IN_PHASE.
+    //
+    // Fix: append the intent first, then reconcile. The intent lands in pendingIntents
+    // while the session is still in NIGHT_ACTIONS, so the phase guard passes.
+    //
+    // To verify this test catches a regression: if the order were reverted to
+    // reconcile-first, reconcile would flip the phase before the guard runs, causing
+    // result.ok to be false (INTENT_NOT_ALLOWED_IN_PHASE) — making this assertion fail.
+    const { lobby, session } = setupSession(Phase.NIGHT_ACTIONS);
+    const hacker = hackersOf(session)[0];
+    const friend = friendsOf(session)[0];
+
+    // Set the phase deadline one second in the past so reconcileSessionRuntime
+    // will immediately advance the phase when it runs.
+    session.timers.currentPhaseEndsAt = new Date(Date.now() - 1000).toISOString();
+
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: hacker });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: friend, metadata: {} },
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+
+    // The intent must be accepted despite the timer having already expired.
+    expect(result.ok).toBe(true);
+    // The accepted intent id must be present in the response data payload.
+    expect((result as { ok: true; data: { acceptedIntentId: string } }).data.acceptedIntentId).toBeTruthy();
+  });
 });
 
 describe('handleSubmitIntent — SUBMIT_VOTE', () => {
