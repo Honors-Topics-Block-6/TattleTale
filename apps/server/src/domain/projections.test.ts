@@ -80,7 +80,7 @@ describe('toPlayerSessionView', () => {
         code: 'ABCDE',
         status: 'IN_GAME' as any,
         hostPlayerId: 'p1',
-        players: Array.from({ length: 5 }, (_, i) => ({
+        players: Array.from({ length: 7 }, (_, i) => ({
           playerId: `p${i + 1}`,
           displayName: `Player ${i + 1}`,
           isHost: i === 0,

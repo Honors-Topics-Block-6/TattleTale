@@ -16,6 +16,8 @@ export class GameSocket {
   #reconnectDelay = 1000;
   #maxReconnectDelay = 30000;
   #shouldReconnect = false;
+  #pingTimer = null;
+  #pingIntervalMs = 25000;
 
   get state() {
     return this.#state;
@@ -38,6 +40,7 @@ export class GameSocket {
       clearTimeout(this.#reconnectTimer);
       this.#reconnectTimer = null;
     }
+    this.#stopPing();
     if (this.#ws) {
       this.#ws.close(1000, 'Client closed');
       this.#ws = null;
@@ -94,6 +97,7 @@ export class GameSocket {
       this.#ws = ws;
       this.#reconnectDelay = 1000;
       this.#setState('connected');
+      this.#startPing();
 
       // Auto-rejoin if we have credentials
       if (this.#credentials) {
@@ -141,6 +145,7 @@ export class GameSocket {
 
     ws.onclose = (event) => {
       this.#ws = null;
+      this.#stopPing();
       this.#rejectAllPending('Connection lost');
 
       if (this.#shouldReconnect && event.code !== 4001 && event.code !== 4002) {
@@ -157,6 +162,21 @@ export class GameSocket {
     ws.onerror = () => {
       // onclose will fire after this
     };
+  }
+
+  #startPing() {
+    this.#stopPing();
+    this.#pingTimer = setInterval(() => {
+      if (this.#state !== 'connected' || !this.#ws) return;
+      this.send('ping', {}).catch(() => {});
+    }, this.#pingIntervalMs);
+  }
+
+  #stopPing() {
+    if (this.#pingTimer) {
+      clearInterval(this.#pingTimer);
+      this.#pingTimer = null;
+    }
   }
 
   #scheduleReconnect() {
