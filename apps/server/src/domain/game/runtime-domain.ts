@@ -597,7 +597,11 @@ function chooseHackerCount(playerCount: number): number {
     return 3;
   }
 
-  return 2;
+  if (playerCount >= 7) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function assignTeams(
