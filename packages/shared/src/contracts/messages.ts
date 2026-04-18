@@ -4,6 +4,7 @@ import { IntentType } from '../enums.js';
 // ─── Client Message Types ────────────────────────────────────
 
 export const ClientMessageTypes = [
+  'ping',
   'joinLobby',
   'rejoinLobby',
   'kickPlayer',
@@ -55,13 +56,21 @@ export type MessagePayload = z.infer<typeof MessagePayloadSchema>;
 export const SubmitIntentPayloadSchema = z.object({
   intent: z.object({
     type: z.nativeEnum(IntentType),
-    payload: z.union([VotePayloadSchema, NightActionPayloadSchema, MessagePayloadSchema]),
+    // Order matters: NightActionPayloadSchema must be tried before VotePayloadSchema
+    // because zod unions strip unknown keys on first match, and both share a
+    // `targetPlayerId` field — so a night-action payload would otherwise be
+    // truncated to just `{ targetPlayerId }`, losing `actionType` and `metadata`.
+    payload: z.union([NightActionPayloadSchema, VotePayloadSchema, MessagePayloadSchema]),
     clientTimestamp: z.string(),
   }),
 });
 export type SubmitIntentPayload = z.infer<typeof SubmitIntentPayloadSchema>;
 
+export const PingPayloadSchema = z.object({}).passthrough();
+export type PingPayload = z.infer<typeof PingPayloadSchema>;
+
 export const ClientPayloadSchemas = {
+  ping: PingPayloadSchema,
   joinLobby: JoinLobbyPayloadSchema,
   rejoinLobby: RejoinLobbyPayloadSchema,
   kickPlayer: KickPlayerPayloadSchema,
