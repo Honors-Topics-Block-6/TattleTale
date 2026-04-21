@@ -614,4 +614,25 @@ describe('handleSubmitIntent — SYSTEM channel is read-only', () => {
     });
     expect(result).toMatchObject({ ok: false, code: 'SYSTEM_CHANNEL_READONLY' });
   });
+
+  it('SYSTEM readonly fires before NOT_CHANNEL_MEMBER (order guard)', async () => {
+    // SYSTEM is a channel-property rule, not a sender-state rule, so it must
+    // beat the membership check. Remove p1 from the system channel members
+    // and confirm the readonly code wins — mirrors the PRIVATE/membership
+    // order-guard test above.
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    session.channels['system'].members = session.channels['system'].members.filter(
+      (id) => id !== 'p1',
+    );
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'system', content: 'hi system' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'SYSTEM_CHANNEL_READONLY' });
+  });
 });
