@@ -2,6 +2,7 @@ import {
   ChannelType,
   IntentType,
   LobbyStatus,
+  MessageErrorCode,
   NightActionType,
   Phase,
   SessionStatus,
@@ -674,6 +675,14 @@ export async function handleSubmitIntent(
       if (!channel) {
         return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
       }
+      // SYSTEM channels are read-only: only the server publishes to them.
+      // Reject player sends early, before membership or lock checks.
+      if (channel.type === ChannelType.SYSTEM) {
+        return fail(
+          MessageErrorCode.SYSTEM_CHANNEL_READONLY,
+          'The System channel is read-only.',
+        );
+      }
       // Defense-in-depth: HACKER channels require sender to be a living Hacker,
       // regardless of channel membership state.
       if (channel.type === 'HACKER') {
@@ -684,6 +693,10 @@ export async function handleSubmitIntent(
       }
       if (!channel.members.includes(actorId)) {
         return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
+      }
+      // PRIVATE (DM) channels are only open during DAY_OPEN.
+      if (channel.type === ChannelType.PRIVATE && session.phase !== Phase.DAY_OPEN) {
+        return fail(MessageErrorCode.PM_PHASE_RESTRICTED, 'Private messages are only allowed during the day discussion phase.');
       }
       if (channel.locked) {
         return fail('CHANNEL_LOCKED', 'This channel is locked.');

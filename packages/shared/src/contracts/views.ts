@@ -51,6 +51,17 @@ export interface ChannelView {
   members: string[];
   locked: boolean;
   expiresAt: Phase | null;
+  /**
+   * Pre-computed display label for this channel.
+   *
+   * For PRIVATE channels the server sets this to the OTHER member's display
+   * name (from the viewer's perspective), so clients do not need to
+   * cross-reference `members` against the player list.
+   *
+   * For all other channel types this is `null`; clients fall back to their
+   * own labelling logic (e.g. "Global", role name, etc.).
+   */
+  label: string | null;
 }
 
 /**

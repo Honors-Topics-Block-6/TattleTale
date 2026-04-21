@@ -252,6 +252,7 @@ const useGameStore = create(
             state.channels[ch.id].members = ch.members;
             state.channels[ch.id].locked = ch.locked;
             state.channels[ch.id].expiresAt = ch.expiresAt;
+            state.channels[ch.id].label = ch.label ?? null;
           } else {
             // New channel
             state.channels[ch.id] = {
@@ -260,6 +261,7 @@ const useGameStore = create(
               members: ch.members,
               locked: ch.locked,
               expiresAt: ch.expiresAt,
+              label: ch.label ?? null,
               messages: [],
             };
           }
@@ -270,7 +272,8 @@ const useGameStore = create(
         if (state.activeChannelId === null) {
           const system = view.channels.find((c) => c.type === 'SYSTEM');
           const global = view.channels.find((c) => c.type === 'GLOBAL');
-          state.activeChannelId = system?.id ?? global?.id ?? view.channels[0]?.id ?? null;
+          const firstNonPrivate = view.channels.find((c) => c.type !== 'PRIVATE');
+          state.activeChannelId = system?.id ?? global?.id ?? firstNonPrivate?.id ?? view.channels[0]?.id ?? null;
         }
 
         // Vote slice

@@ -172,6 +172,103 @@ describe('toPlayerSessionView', () => {
     });
   });
 
+  describe('PRIVATE channel label projection', () => {
+    function makeGameStateWithDM(): GameState {
+      return {
+        gameId: 'game-1',
+        lobbyCode: 'ABC123',
+        status: SessionStatus.ACTIVE,
+        winnerTeam: null,
+        phase: Phase.DAY_OPEN,
+        cycle: 1,
+        players: {
+          p1: { playerId: 'p1', displayName: 'Alice', alive: true, connected: true, roleId: null, team: Team.FRIENDS, permissions: [] },
+          p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true, roleId: null, team: Team.FRIENDS, permissions: [] },
+          p3: { playerId: 'p3', displayName: 'Carol', alive: true, connected: true, roleId: null, team: Team.FRIENDS, permissions: [] },
+        },
+        channels: {
+          global: { id: 'global', type: ChannelType.GLOBAL, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+          system: { id: 'system', type: ChannelType.SYSTEM, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+          'dm-p1-p2': { id: 'dm-p1-p2', type: ChannelType.PRIVATE, members: ['p1', 'p2'], locked: false, expiresAt: null },
+          'dm-p1-p3': { id: 'dm-p1-p3', type: ChannelType.PRIVATE, members: ['p1', 'p3'], locked: false, expiresAt: null },
+          'dm-p2-p3': { id: 'dm-p2-p3', type: ChannelType.PRIVATE, members: ['p2', 'p3'], locked: false, expiresAt: null },
+        },
+        pendingIntents: [],
+        systemEvents: [],
+        timers: { currentPhaseEndsAt: null, currentPhaseDurationSeconds: 0 },
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+    }
+
+    it('PRIVATE channel projection sets label to the OTHER member displayName from viewer perspective', () => {
+      const state = makeGameStateWithDM();
+      // p1 views dm-p1-p2: other member is p2 (Bob)
+      const viewP1 = toPlayerSessionView(state, 'p1');
+      const dmChannel = viewP1.channels.find((c) => c.id === 'dm-p1-p2');
+      expect(dmChannel).toBeDefined();
+      expect(dmChannel!.label).toBe('Bob');
+    });
+
+    it('label is the other member regardless of member array order', () => {
+      const state = makeGameStateWithDM();
+      // p2 views dm-p1-p2: other member is p1 (Alice)
+      const viewP2 = toPlayerSessionView(state, 'p2');
+      const dmChannel = viewP2.channels.find((c) => c.id === 'dm-p1-p2');
+      expect(dmChannel).toBeDefined();
+      expect(dmChannel!.label).toBe('Alice');
+    });
+
+    it('non-PRIVATE channel projection has label === null', () => {
+      const state = makeGameStateWithDM();
+      const viewP1 = toPlayerSessionView(state, 'p1');
+      const globalChannel = viewP1.channels.find((c) => c.id === 'global');
+      expect(globalChannel).toBeDefined();
+      expect(globalChannel!.label).toBeNull();
+
+      const systemChannel = viewP1.channels.find((c) => c.id === 'system');
+      expect(systemChannel).toBeDefined();
+      expect(systemChannel!.label).toBeNull();
+    });
+
+    it('PRIVATE channel where the other member does not exist in session.players yields label === null (defensive)', () => {
+      const state = makeGameStateWithDM();
+      // Add a DM channel referencing a player not in session.players
+      state.channels['dm-p1-ghost'] = {
+        id: 'dm-p1-ghost',
+        type: ChannelType.PRIVATE,
+        members: ['p1', 'ghost-player'],
+        locked: false,
+        expiresAt: null,
+      };
+      const viewP1 = toPlayerSessionView(state, 'p1');
+      const dmChannel = viewP1.channels.find((c) => c.id === 'dm-p1-ghost');
+      expect(dmChannel).toBeDefined();
+      expect(dmChannel!.label).toBeNull();
+    });
+
+    it('a player only sees PRIVATE channels they are a member of', () => {
+      const state = makeGameStateWithDM();
+      // p1 is a member of dm-p1-p2 and dm-p1-p3 but NOT dm-p2-p3
+      const viewP1 = toPlayerSessionView(state, 'p1');
+      const channelIds = viewP1.channels.map((c) => c.id);
+      expect(channelIds).toContain('dm-p1-p2');
+      expect(channelIds).toContain('dm-p1-p3');
+      expect(channelIds).not.toContain('dm-p2-p3');
+    });
+
+    it('each viewer sees their own label on each DM', () => {
+      const state = makeGameStateWithDM();
+      // p3 views dm-p1-p3: other is p1 (Alice)
+      const viewP3 = toPlayerSessionView(state, 'p3');
+      const dmP1P3 = viewP3.channels.find((c) => c.id === 'dm-p1-p3');
+      expect(dmP1P3!.label).toBe('Alice');
+      // p3 views dm-p2-p3: other is p2 (Bob)
+      const dmP2P3 = viewP3.channels.find((c) => c.id === 'dm-p2-p3');
+      expect(dmP2P3!.label).toBe('Bob');
+    });
+  });
+
   describe('privateSystemEvents privacy isolation', () => {
     it('an INVESTIGATION_RESULT in player A private bucket must NOT appear in player B view, but MUST appear in player A view', () => {
       const state = makeGameState();

@@ -1,4 +1,4 @@
-import { IntentType, NightActionType, Phase, Team, type LobbyView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, Team, type LobbyView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -89,7 +89,14 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     })),
     channels: Object.values(session.channels)
       .filter((ch) => ch.members.includes(playerId))
-      .map((ch) => ({ id: ch.id, type: ch.type, members: [...ch.members], locked: ch.locked, expiresAt: ch.expiresAt })),
+      .map((ch) => {
+        let label: string | null = null;
+        if (ch.type === ChannelType.PRIVATE) {
+          const otherId = ch.members.find((id) => id !== playerId) ?? null;
+          label = (otherId !== null ? (session.players[otherId]?.displayName ?? null) : null);
+        }
+        return { id: ch.id, type: ch.type, members: [...ch.members], locked: ch.locked, expiresAt: ch.expiresAt, label };
+      }),
     myPendingIntentTypes: session.pendingIntents
       .filter((intent) => intent.playerId === playerId)
       .map((intent) => intent.type),
