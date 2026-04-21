@@ -582,3 +582,36 @@ describe('handleSubmitIntent — hacker channel privacy', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('handleSubmitIntent — SYSTEM channel is read-only', () => {
+  it('rejects SEND_MESSAGE on the SYSTEM channel with SYSTEM_CHANNEL_READONLY', async () => {
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'system', content: 'hi system' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'SYSTEM_CHANNEL_READONLY' });
+  });
+
+  it('SYSTEM readonly check fires even when the channel is locked', async () => {
+    // SYSTEM channels aren't supposed to be lockable, but if they ever are
+    // we still want the readonly error to win so clients show the correct UI.
+    const { lobby, session } = setupSession(Phase.DAY_OPEN);
+    session.channels['system'].locked = true;
+    const { ctx, ws } = buildCtx({ lobby, session, senderId: 'p1' });
+
+    const result = await handleSubmitIntent(ctx, ws, {
+      intent: {
+        type: IntentType.SEND_MESSAGE,
+        payload: { channelId: 'system', content: 'hi system' },
+        clientTimestamp: '2026-03-17T00:00:00.000Z',
+      },
+    });
+    expect(result).toMatchObject({ ok: false, code: 'SYSTEM_CHANNEL_READONLY' });
+  });
+});

@@ -66,6 +66,13 @@ export enum MessageErrorCode {
   /** Channel is locked (by a role ability or phase transition). */
   CHANNEL_LOCKED = 'CHANNEL_LOCKED',
   /**
+   * SYSTEM channels are read-only — they carry game events (eliminations,
+   * lock notices, investigation results) authored by the server. Players
+   * must never post there, so SEND_MESSAGE on a SYSTEM channel is rejected
+   * before any membership or lock checks.
+   */
+  SYSTEM_CHANNEL_READONLY = 'SYSTEM_CHANNEL_READONLY',
+  /**
    * A PRIVATE (DM) channel cannot be used in the current game phase.
    * PMs are only allowed during DAY_OPEN. They are disabled during DAY_VOTE
    * (which collapses Final Statements + Voting from the design doc),

@@ -675,6 +675,14 @@ export async function handleSubmitIntent(
       if (!channel) {
         return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
       }
+      // SYSTEM channels are read-only: only the server publishes to them.
+      // Reject player sends early, before membership or lock checks.
+      if (channel.type === ChannelType.SYSTEM) {
+        return fail(
+          MessageErrorCode.SYSTEM_CHANNEL_READONLY,
+          'The System channel is read-only.',
+        );
+      }
       // Defense-in-depth: HACKER channels require sender to be a living Hacker,
       // regardless of channel membership state.
       if (channel.type === 'HACKER') {

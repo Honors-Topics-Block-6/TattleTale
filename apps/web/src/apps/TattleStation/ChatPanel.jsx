@@ -37,6 +37,7 @@ export default function ChatPanel({ channelId }) {
   const isLocked = channel?.locked ?? false;
   const isPrivatePhaseRestricted =
     channel?.type === 'PRIVATE' && phase !== 'DAY_OPEN';
+  const isSystemChannel = channel?.type === 'SYSTEM';
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -45,7 +46,13 @@ export default function ChatPanel({ channelId }) {
 
   const handleSend = async () => {
     const content = inputValue.trim();
-    if (!content || isLocked || !selfAlive || isPrivatePhaseRestricted) return;
+    if (
+      !content
+      || isLocked
+      || !selfAlive
+      || isPrivatePhaseRestricted
+      || isSystemChannel
+    ) return;
 
     try {
       await socket.send('submitIntent', {
@@ -136,7 +143,21 @@ export default function ChatPanel({ channelId }) {
             borderTop: '1px solid #aca899',
           }}
         >
-          {isLocked ? (
+          {isSystemChannel ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              System channel is read-only
+            </div>
+          ) : isLocked ? (
             <div
               style={{
                 flex: 1,
