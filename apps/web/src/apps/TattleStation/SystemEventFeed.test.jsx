@@ -58,6 +58,44 @@ describe('SystemEventFeed', () => {
     expect(screen.getByText(/waiting for results/i)).toBeInTheDocument();
   });
 
+  it('renders INVESTIGATION_RESULT with target display name and role', () => {
+    const events = [
+      {
+        id: 'e1',
+        type: 'INVESTIGATION_RESULT',
+        createdAt: '2026-03-17T00:00:30.000Z',
+        metadata: {
+          type: 'INVESTIGATION_RESULT',
+          targetPlayerId: 'p3',
+          targetDisplayName: 'Eve',
+          targetRoleId: 'HACKER',
+          targetTeam: 'HACKERS',
+        },
+      },
+    ];
+    render(<SystemEventFeed events={events} />);
+    expect(screen.getByText(/You investigated Eve\. They are a Hacker\./i)).toBeInTheDocument();
+  });
+
+  it('renders INVESTIGATION_RESULT with unknown role fallback', () => {
+    const events = [
+      {
+        id: 'e1',
+        type: 'INVESTIGATION_RESULT',
+        createdAt: '2026-03-17T00:00:30.000Z',
+        metadata: {
+          type: 'INVESTIGATION_RESULT',
+          targetPlayerId: 'p3',
+          targetDisplayName: 'Eve',
+          targetRoleId: 'NOT_A_REAL_ROLE',
+          targetTeam: 'HACKERS',
+        },
+      },
+    ];
+    render(<SystemEventFeed events={events} />);
+    expect(screen.getByText(/They are a Unknown Role/i)).toBeInTheDocument();
+  });
+
   it('renders PLAYER_VOTED_OUT without metadata gracefully', () => {
     const events = [
       { id: 'e1', type: 'PLAYER_VOTED_OUT', createdAt: '2026-03-17T00:00:30.000Z' },

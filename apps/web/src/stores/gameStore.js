@@ -36,6 +36,7 @@ const initialState = {
   myTeammates: [],
   hackerNightView: null,
   pendingNightKillSelection: null,
+  pendingInvestigateSelection: null,
 
   // Session slice
   gameId: '',
@@ -174,6 +175,16 @@ const useGameStore = create(
         state.pendingNightKillSelection = null;
       }),
 
+    selectInvestigateTarget: (id) =>
+      set((state) => {
+        state.pendingInvestigateSelection = id;
+      }),
+
+    clearInvestigateSelection: () =>
+      set((state) => {
+        state.pendingInvestigateSelection = null;
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -306,6 +317,7 @@ const useGameStore = create(
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
+          state.pendingInvestigateSelection = null;
         }
 
         // Session slice
@@ -329,6 +341,19 @@ export function selectIsHacker(state) {
   if (state.myTeam !== 'HACKERS') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
+}
+
+export function selectIsWhiteHatHacker(state) {
+  if (state.selfRole !== 'WHITE_HAT_HACKER') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectInvestigateCandidates(state) {
+  if (!state.players) return [];
+  return Object.values(state.players).filter(
+    (p) => p.alive && p.playerId !== state.selfId,
+  );
 }
 
 export function selectIsHackerNight(state) {

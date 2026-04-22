@@ -37,7 +37,7 @@ export const NIGHT_ACTION_TIER: Record<NightActionType, 1 | 2 | 3 | 4 | 5> = {
  */
 export const ROLE_ACTION_MAP: Record<string, readonly NightActionType[]> = {
   SECURITY_SPECIALIST: [NightActionType.PROTECT],
-  WHITE_HAT: [NightActionType.INVESTIGATE],
+  WHITE_HAT_HACKER: [NightActionType.INVESTIGATE],
   EAVESDROPPER: [NightActionType.MONITOR],
   SIGNAL_JAMMER: [NightActionType.JAM],
   TROLLER: [NightActionType.MISDIRECT],
