@@ -183,4 +183,6 @@ export interface PlayerSessionView {
    * projection layer from `session.restrictions`.
    */
   myRestrictions: ViewerRestriction[];
+  myPointsEarned: number | null;
+  myTotalPoints: number | null;
 }

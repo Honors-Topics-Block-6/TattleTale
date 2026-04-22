@@ -144,6 +144,11 @@ export interface GameState {
    * `undefined` as `[]` and writers should lazy-init before appending.
    */
   restrictions?: Restriction[];
+  /**
+   * Finalized per-player point results for this game. Set at game end after
+   * persistence so clients can show earned points and running totals.
+   */
+  pointAwards?: Record<string, { earnedPoints: number; totalPoints: number }>;
   timers: GameTimersState;
   createdAt: string;
   updatedAt: string;

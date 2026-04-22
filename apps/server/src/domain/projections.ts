@@ -77,6 +77,7 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
 
 export function toPlayerSessionView(session: GameState, playerId: string): PlayerSessionView {
   const player = session.players[playerId];
+  const pointAward = session.pointAwards?.[playerId];
 
   // Aggregate current-cycle SUBMIT_VOTE intents into a tally keyed by target.
   const voteTally: Record<string, number> = {};
@@ -190,6 +191,8 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
           .map((ch) => ch.id),
       ),
     ),
+    myPointsEarned: pointAward?.earnedPoints ?? null,
+    myTotalPoints: pointAward?.totalPoints ?? null,
   };
 }
 

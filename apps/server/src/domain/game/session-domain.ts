@@ -101,6 +101,7 @@ export function buildSessionFromLobby(
     // the optional marker on GameState.restrictions remains for sessions persisted before
     // the framework landed.
     restrictions: [],
+    pointAwards: {},
     timers: {
       currentPhaseEndsAt: null,
       currentPhaseDurationSeconds: 0,
