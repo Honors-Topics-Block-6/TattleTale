@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import useGameStore from './stores/gameStore';
 import { useSocket } from './lib/SocketContext';
+import LeaderboardPanel from './components/LeaderboardPanel';
+import { getDeviceId } from './os/utils/deviceId';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
 const API_BASE = WS_URL.replace(/^ws/, 'http');
@@ -46,6 +48,7 @@ export default function Lobby() {
   // Inputs
   const [displayName, setDisplayName] = useState(randomDisplayName());
   const [joinCode, setJoinCode] = useState('');
+  const accountId = getDeviceId();
 
   const goTitle = () => {
     socket.clearCredentials();
@@ -82,6 +85,7 @@ export default function Lobby() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName: name,
+          accountId,
           settings: { minPlayers: 1 },
         }),
       });
@@ -143,7 +147,7 @@ export default function Lobby() {
       socket.close();
       await waitForConnected(socket, wsUrl);
 
-      const joinResp = await socket.send('joinLobby', { displayName: name });
+      const joinResp = await socket.send('joinLobby', { displayName: name, accountId });
       const ack = joinResp?.payload?.data;
       if (!ack?.playerId || !ack?.reconnectToken) {
         throw new Error('joinLobby did not return credentials');
@@ -182,7 +186,12 @@ export default function Lobby() {
         <TitleScreen
           onCreate={() => setScreen('create')}
           onJoin={() => setScreen('join')}
+          onLeaderboard={() => setScreen('leaderboard')}
         />
+      )}
+
+      {screen === 'leaderboard' && (
+        <LeaderboardScreen accountId={accountId} onBack={goTitle} />
       )}
 
       {screen === 'create' && (
@@ -389,11 +398,33 @@ function ErrorBanner({ message }) {
   );
 }
 
-function TitleScreen({ onCreate, onJoin }) {
+function TitleScreen({ onCreate, onJoin, onLeaderboard }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
       <PrimaryButton onClick={onCreate}>Create Game</PrimaryButton>
       <PrimaryButton onClick={onJoin}>Join Game</PrimaryButton>
+      <SecondaryButton onClick={onLeaderboard}>Leaderboard</SecondaryButton>
+    </div>
+  );
+}
+
+function LeaderboardScreen({ accountId, onBack }) {
+  return (
+    <div
+      style={{
+        width: 520,
+        maxWidth: '90vw',
+        height: 450,
+        background: 'rgba(255,255,255,0.92)',
+        borderRadius: 6,
+        padding: 12,
+        boxSizing: 'border-box',
+      }}
+    >
+      <LeaderboardPanel accountId={accountId} pageSize={15} compact />
+      <div style={{ marginTop: 10, textAlign: 'center' }}>
+        <SecondaryButton onClick={onBack}>Back</SecondaryButton>
+      </div>
     </div>
   );
 }

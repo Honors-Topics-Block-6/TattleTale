@@ -19,6 +19,7 @@ export type ClientMessageType = (typeof ClientMessageTypes)[number];
 
 export const JoinLobbyPayloadSchema = z.object({
   displayName: z.string().min(2).max(24),
+  accountId: z.string().uuid().optional(),
 });
 export type JoinLobbyPayload = z.infer<typeof JoinLobbyPayloadSchema>;
 

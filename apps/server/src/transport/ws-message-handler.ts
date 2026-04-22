@@ -315,6 +315,7 @@ export async function handleJoinLobby(
 
     lobby.players.push({
       playerId,
+      accountId: payload.accountId,
       displayName,
       isHost: false,
       ready: false,

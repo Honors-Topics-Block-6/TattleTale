@@ -77,6 +77,7 @@ export class GameRoomDO implements DurableObject {
     const body = (await request.json()) as {
       lobbyCode: string;
       displayName: string;
+      accountId?: string;
       settings?: Partial<typeof DEFAULT_LOBBY_SETTINGS>;
     };
 
@@ -94,6 +95,7 @@ export class GameRoomDO implements DurableObject {
       players: [
         {
           playerId,
+          accountId: body.accountId,
           displayName,
           isHost: true,
           ready: false,
@@ -330,6 +332,8 @@ export class GameRoomDO implements DurableObject {
       });
     } catch { /* non-fatal */ }
 
+    await this.awardGlobalPoints(session, lobby);
+
     // Update lobby status
     lobby.status = LobbyStatus.CLOSED;
     touchLobby(lobby, new Date().toISOString());
@@ -346,6 +350,71 @@ export class GameRoomDO implements DurableObject {
     // Schedule alarm to close WebSocket connections after final state arrives
     await this.repo.saveGameEndPending(true);
     await this.state.storage.setAlarm(Date.now() + 3000);
+  }
+
+  private async awardGlobalPoints(session: GameState, lobby: LobbyState): Promise<void> {
+    if (!session.winnerTeam) return;
+
+    const now = new Date().toISOString();
+    const lobbyByPlayerId = new Map(lobby.players.map((p) => [p.playerId, p]));
+    const allPlayers = Object.values(session.players);
+    const aliveHackers = allPlayers.filter((p) => p.team === 'HACKERS' && p.alive).length;
+
+    const pointAwards: Array<{ accountId: string; displayName: string; points: number; didWin: boolean }> = [];
+    for (const player of allPlayers) {
+      const lobbyPlayer = lobbyByPlayerId.get(player.playerId);
+      if (!lobbyPlayer?.accountId) continue;
+      const didWin = player.team === session.winnerTeam;
+      let points = 0;
+      if (didWin && session.winnerTeam === 'HACKERS') {
+        points = aliveHackers * 10;
+      } else if (didWin && session.winnerTeam === 'FRIENDS') {
+        points = 60;
+      }
+
+      pointAwards.push({
+        accountId: lobbyPlayer.accountId,
+        displayName: player.displayName,
+        points,
+        didWin,
+      });
+    }
+
+    if (pointAwards.length === 0) return;
+
+    const statements = pointAwards.map((award) =>
+      this.env.DB.prepare(`
+        INSERT INTO user_points (
+          account_id,
+          display_name,
+          total_points,
+          games_played,
+          wins,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(account_id) DO UPDATE SET
+          display_name = excluded.display_name,
+          total_points = user_points.total_points + excluded.total_points,
+          games_played = user_points.games_played + 1,
+          wins = user_points.wins + excluded.wins,
+          updated_at = excluded.updated_at
+      `).bind(
+        award.accountId,
+        award.displayName,
+        award.points,
+        award.didWin ? 1 : 0,
+        now,
+        now,
+      )
+    );
+
+    try {
+      await this.env.DB.batch(statements);
+    } catch {
+      // Non-fatal: scoring persistence should not block game teardown.
+    }
   }
 
   // ─── Private Helpers ────────────────────────────────────

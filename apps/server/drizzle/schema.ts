@@ -52,3 +52,13 @@ export const installedApps = sqliteTable('installed_apps', {
   appId: text('app_id').notNull(),
   installedAt: text('installed_at').notNull(),
 });
+
+export const userPoints = sqliteTable('user_points', {
+  accountId: text('account_id').primaryKey(),
+  displayName: text('display_name').notNull(),
+  totalPoints: integer('total_points').notNull().default(0),
+  gamesPlayed: integer('games_played').notNull().default(0),
+  wins: integer('wins').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
