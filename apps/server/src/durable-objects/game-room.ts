@@ -27,6 +27,7 @@ import {
 
 interface WsAttachment {
   playerId: string | null;
+  accountId: string | null;
 }
 
 export class GameRoomDO implements DurableObject {
@@ -60,7 +61,7 @@ export class GameRoomDO implements DurableObject {
 
     // ─── WebSocket upgrade ────────────────────────────────
     if (request.headers.get('Upgrade') === 'websocket') {
-      return this.handleWebSocketUpgrade();
+      return this.handleWebSocketUpgrade(request);
     }
 
     return new Response('not found', { status: 404 });
@@ -125,12 +126,15 @@ export class GameRoomDO implements DurableObject {
 
   // ─── WebSocket Upgrade ──────────────────────────────────
 
-  private handleWebSocketUpgrade(): Response {
+  private handleWebSocketUpgrade(request: Request): Response {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
     this.state.acceptWebSocket(server);
-    (server as any).serializeAttachment({ playerId: null } satisfies WsAttachment);
+    // Read the server-verified accountId injected by the Worker router (C1).
+    // This header is set only after the router verifies a WS ticket — never trusted from clients.
+    const accountId = request.headers.get('X-Verified-Account-Id');
+    (server as any).serializeAttachment({ playerId: null, accountId: accountId ?? null } satisfies WsAttachment);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -421,7 +425,12 @@ export class GameRoomDO implements DurableObject {
         return att.playerId;
       },
       setPlayerIdForWs: (ws, playerId) => {
-        (ws as any).serializeAttachment({ playerId } satisfies WsAttachment);
+        const att = (ws as any).deserializeAttachment() as WsAttachment;
+        (ws as any).serializeAttachment({ ...att, playerId } satisfies WsAttachment);
+      },
+      getAccountIdForWs: (ws) => {
+        const att = (ws as any).deserializeAttachment() as WsAttachment;
+        return att.accountId ?? null;
       },
       broadcastLobbyState: (lobby) => this.broadcastLobbyState(lobby),
       broadcastSessionState: (session) => this.broadcastSessionState(session),

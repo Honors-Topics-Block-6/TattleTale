@@ -3,14 +3,12 @@ import type { IntentType } from '../enums.js';
 
 export interface CreateLobbyCommand {
   displayName: string;
-  accountId?: string;
   settings?: Partial<LobbySettingsView>;
 }
 
 export interface JoinLobbyCommand {
   lobbyCode: string;
   displayName: string;
-  accountId?: string;
 }
 
 export interface ReconnectCommand {

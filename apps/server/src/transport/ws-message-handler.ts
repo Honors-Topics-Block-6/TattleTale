@@ -53,6 +53,7 @@ export interface HandlerContext {
   auditRepo: GameAuditRepository;
   getPlayerIdForWs(ws: WebSocket): string | null;
   setPlayerIdForWs(ws: WebSocket, playerId: string): void;
+  getAccountIdForWs(ws: WebSocket): string | null;
   broadcastLobbyState(lobby: LobbyState): void;
   broadcastSessionState(session: GameState): void;
   broadcastChannelMessage(
@@ -313,9 +314,12 @@ export async function handleJoinLobby(
     const playerId = generateId();
     const reconnectToken = generateToken();
 
+    // accountId is resolved server-side from the WS ticket, never from the payload (C1)
+    const accountId = ctx.getAccountIdForWs(ws) ?? undefined;
+
     lobby.players.push({
       playerId,
-      accountId: payload.accountId,
+      accountId,
       displayName,
       isHost: false,
       ready: false,

@@ -4,11 +4,10 @@ import { useSocket } from './lib/SocketContext';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import {
   fetchMe,
-  getAuthToken,
+  getWsTicket,
   login,
   logout,
   register,
-  setAuthToken,
   updateProfile,
 } from './lib/auth-api';
 
@@ -62,16 +61,11 @@ export default function Lobby() {
   // Inputs
   const [displayName, setDisplayName] = useState(randomDisplayName());
   const [joinCode, setJoinCode] = useState('');
-  const accountId = currentUser?.id ?? undefined;
 
   useEffect(() => {
     let cancelled = false;
-    const token = getAuthToken();
-    if (!token) {
-      setScreen('auth');
-      return;
-    }
-    fetchMe(token)
+    // Session is managed by HttpOnly cookie — no localStorage token (C3)
+    fetchMe()
       .then((data) => {
         if (cancelled) return;
         setCurrentUser(data.user);
@@ -81,7 +75,6 @@ export default function Lobby() {
         setScreen('title');
       })
       .catch(() => {
-        setAuthToken('');
         if (!cancelled) setScreen('auth');
       });
     return () => {
@@ -113,11 +106,13 @@ export default function Lobby() {
             email: authEmail.trim(),
             password: authPassword,
           });
-      setAuthToken(payload.token);
-      setCurrentUser(payload.user);
-      setDisplayName(payload.user.displayName || randomDisplayName());
-      setProfileDraftName(payload.user.displayName || '');
-      setProfileDraftAvatar(payload.user.avatar || '');
+      // Session cookie is set by the server — no localStorage token (C3)
+      if (payload.user) {
+        setCurrentUser(payload.user);
+        setDisplayName(payload.user.displayName || randomDisplayName());
+        setProfileDraftName(payload.user.displayName || '');
+        setProfileDraftAvatar(payload.user.avatar || '');
+      }
       setBusy(false);
       setScreen('title');
     } catch (err) {
@@ -126,13 +121,11 @@ export default function Lobby() {
   };
 
   const handleSignOut = async () => {
-    const token = getAuthToken();
     try {
-      if (token) await logout(token);
+      await logout();
     } catch {
-      // best effort
+      // best effort — server clears the cookie; proceed regardless
     }
-    setAuthToken('');
     setCurrentUser(null);
     socket.clearCredentials();
     socket.close();
@@ -142,12 +135,10 @@ export default function Lobby() {
   };
 
   const handleSaveProfile = async () => {
-    const token = getAuthToken();
-    if (!token) return setScreen('auth');
     setBusy(true);
     setErrorMsg('');
     try {
-      const updated = await updateProfile(token, {
+      const updated = await updateProfile({
         displayName: profileDraftName.trim(),
         avatar: profileDraftAvatar.trim() ? profileDraftAvatar.trim() : null,
       });
@@ -180,12 +171,13 @@ export default function Lobby() {
 
     try {
       // 1. Create the lobby over HTTP. Creator is auto-added as host.
+      // accountId is resolved server-side from the session cookie — never sent by the client (C1).
       const resp = await fetch(`${API_BASE}/api/lobby/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           displayName: name,
-          accountId,
           settings: { minPlayers: 1 },
         }),
       });
@@ -241,13 +233,19 @@ export default function Lobby() {
     setErrorMsg('');
 
     try {
-      const wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+      // Obtain a short-lived WS ticket so the server can verify our identity
+      // without the client ever supplying an accountId directly (C1).
+      let wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+      if (currentUser) {
+        const ticket = await getWsTicket().catch(() => null);
+        if (ticket) wsUrl = `${wsUrl}?wsTicket=${encodeURIComponent(ticket)}`;
+      }
 
       socket.clearCredentials();
       socket.close();
       await waitForConnected(socket, wsUrl);
 
-      const joinResp = await socket.send('joinLobby', { displayName: name, accountId });
+      const joinResp = await socket.send('joinLobby', { displayName: name });
       const ack = joinResp?.payload?.data;
       if (!ack?.playerId || !ack?.reconnectToken) {
         throw new Error('joinLobby did not return credentials');
@@ -324,7 +322,7 @@ export default function Lobby() {
       )}
 
       {screen === 'leaderboard' && (
-        <LeaderboardScreen accountId={accountId} onBack={goTitle} />
+        <LeaderboardScreen onBack={goTitle} />
       )}
 
       {screen === 'create' && (
@@ -599,7 +597,7 @@ function AuthScreen({
   );
 }
 
-function LeaderboardScreen({ accountId, onBack }) {
+function LeaderboardScreen({ onBack }) {
   return (
     <div
       style={{
@@ -612,7 +610,7 @@ function LeaderboardScreen({ accountId, onBack }) {
         boxSizing: 'border-box',
       }}
     >
-      <LeaderboardPanel accountId={accountId} pageSize={15} compact />
+      <LeaderboardPanel pageSize={15} compact />
       <div style={{ marginTop: 10, textAlign: 'center' }}>
         <SecondaryButton onClick={onBack}>Back</SecondaryButton>
       </div>

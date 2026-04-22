@@ -1,21 +1,9 @@
-import { useEffect, useState } from 'react';
 import LeaderboardPanel from '../../components/LeaderboardPanel';
-import { fetchMe, getAuthToken } from '../../lib/auth-api';
 
 function LeaderboardApp() {
-  const [accountId, setAccountId] = useState(undefined);
-
-  useEffect(() => {
-    const token = getAuthToken();
-    if (!token) return;
-    fetchMe(token)
-      .then((data) => setAccountId(data.user?.id))
-      .catch(() => setAccountId(undefined));
-  }, []);
-
   return (
     <div style={{ width: '100%', height: '100%', padding: 8, boxSizing: 'border-box' }}>
-      <LeaderboardPanel accountId={accountId} pageSize={20} />
+      <LeaderboardPanel pageSize={20} />
     </div>
   );
 }

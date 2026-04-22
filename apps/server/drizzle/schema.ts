@@ -74,9 +74,25 @@ export const userSessions = sqliteTable('user_sessions', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   token: text('token').notNull(),
+  tokenHash: text('token_hash').unique(),
   expiresAt: text('expires_at').notNull(),
   revokedAt: text('revoked_at'),
   createdAt: text('created_at').notNull(),
+});
+
+export const wsTickets = sqliteTable('ws_tickets', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull(),
+  used: integer('used').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
+
+export const authRateLimits = sqliteTable('auth_rate_limits', {
+  ip: text('ip').notNull(),
+  action: text('action').notNull(),
+  windowStart: text('window_start').notNull(),
+  attempts: integer('attempts').notNull().default(0),
 });
 
 export const userPoints = sqliteTable('user_points', {

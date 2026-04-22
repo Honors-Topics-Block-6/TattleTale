@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchLeaderboard } from '../lib/leaderboard-api';
 
-export default function LeaderboardPanel({ accountId, pageSize = 20, compact = false }) {
+export default function LeaderboardPanel({ pageSize = 20, compact = false }) {
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -13,7 +13,7 @@ export default function LeaderboardPanel({ accountId, pageSize = 20, compact = f
       setLoading(true);
       setError('');
       try {
-        const response = await fetchLeaderboard({ limit: pageSize, offset, accountId });
+        const response = await fetchLeaderboard({ limit: pageSize, offset });
         if (!cancelled) {
           setData(response);
         }
@@ -31,16 +31,19 @@ export default function LeaderboardPanel({ accountId, pageSize = 20, compact = f
     return () => {
       cancelled = true;
     };
-  }, [accountId, offset, pageSize]);
+  }, [offset, pageSize]);
 
   const entries = data?.entries ?? [];
   const canPrev = offset > 0;
   const canNext = Boolean(data?.hasMore);
 
+  // currentUser comes from the server (session-derived), so no client-supplied ID needed (C8)
+  const currentUser = data?.currentUser ?? null;
+
   const ownRankLabel = useMemo(() => {
-    if (!data?.currentUser) return 'Unranked';
-    return `#${data.currentUser.rank} - ${data.currentUser.totalPoints} pts`;
-  }, [data]);
+    if (!currentUser) return 'Unranked';
+    return `#${currentUser.rank} - ${currentUser.totalPoints} pts`;
+  }, [currentUser]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
@@ -68,9 +71,13 @@ export default function LeaderboardPanel({ accountId, pageSize = 20, compact = f
           </thead>
           <tbody>
             {entries.map((entry) => {
-              const isCurrentUser = accountId && entry.accountId === accountId;
+              // Match by rank + name — server marks currentUser separately, no internal ID exposed (C8)
+              const isCurrentUser =
+                currentUser &&
+                entry.rank === currentUser.rank &&
+                entry.displayName === currentUser.displayName;
               return (
-                <tr key={entry.accountId} style={{ background: isCurrentUser ? '#dff0ff' : 'transparent' }}>
+                <tr key={`${entry.rank}-${entry.displayName}`} style={{ background: isCurrentUser ? '#dff0ff' : 'transparent' }}>
                   <td style={{ padding: '6px 8px', borderTop: '1px solid #eee' }}>#{entry.rank}</td>
                   <td style={{ padding: '6px 8px', borderTop: '1px solid #eee' }}>
                     {entry.displayName}
@@ -98,7 +105,7 @@ export default function LeaderboardPanel({ accountId, pageSize = 20, compact = f
           Previous
         </button>
         <span style={{ fontSize: 11, color: '#555' }}>
-          Showing {offset + 1}-{offset + entries.length} of {data?.total ?? 0}
+          Showing {entries.length === 0 ? 0 : offset + 1}–{offset + entries.length} of {data?.total ?? 0}
         </span>
         <button onClick={() => setOffset((v) => v + pageSize)} disabled={!canNext || loading}>
           Next
