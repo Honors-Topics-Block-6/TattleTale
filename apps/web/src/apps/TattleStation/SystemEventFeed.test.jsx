@@ -74,7 +74,7 @@ describe('SystemEventFeed', () => {
       },
     ];
     render(<SystemEventFeed events={events} />);
-    expect(screen.getByText(/You investigated Eve\. They are a Hacker\./i)).toBeInTheDocument();
+    expect(screen.getByText(/You investigated Eve\. Their role: Hacker\./i)).toBeInTheDocument();
   });
 
   it('renders INVESTIGATION_RESULT with unknown role fallback', () => {
@@ -93,7 +93,7 @@ describe('SystemEventFeed', () => {
       },
     ];
     render(<SystemEventFeed events={events} />);
-    expect(screen.getByText(/They are a Unknown Role/i)).toBeInTheDocument();
+    expect(screen.getByText(/Their role: Unknown Role/i)).toBeInTheDocument();
   });
 
   it('renders PLAYER_VOTED_OUT without metadata gracefully', () => {

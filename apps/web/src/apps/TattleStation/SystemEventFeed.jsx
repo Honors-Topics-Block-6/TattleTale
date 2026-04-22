@@ -14,7 +14,7 @@ const TEMPLATES = {
   PSYCHIC_SIGNAL_RECEIVED: () => 'A psychic signal is coming through.',
   INVESTIGATION_RESULT: ({ targetDisplayName, targetRoleId } = {}) => {
     const roleName = ROLE_DEFINITIONS.get(targetRoleId)?.displayName ?? 'Unknown Role';
-    return `You investigated ${targetDisplayName ?? 'a player'}. They are a ${roleName}.`;
+    return `You investigated ${targetDisplayName ?? 'a player'}. Their role: ${roleName}.`;
   },
 };
 

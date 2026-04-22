@@ -37,6 +37,11 @@ const initialState = {
   hackerNightView: null,
   pendingNightKillSelection: null,
   pendingInvestigateSelection: null,
+  // Cycle number in which the viewer last submitted an INVESTIGATE intent.
+  // Scoped per-cycle because `pendingIntentTypes` is coarse (it only tracks
+  // IntentType, not actionType) and would false-positive if any other
+  // SUBMIT_NIGHT_ACTION is pending (e.g. after a Jealous SWAP_ROLE).
+  investigateSubmittedCycle: null,
 
   // Session slice
   gameId: '',
@@ -185,6 +190,11 @@ const useGameStore = create(
         state.pendingInvestigateSelection = null;
       }),
 
+    markInvestigateSubmitted: (cycle) =>
+      set((state) => {
+        state.investigateSubmittedCycle = cycle;
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -205,6 +215,7 @@ const useGameStore = create(
     syncSessionState: (view) =>
       set((state) => {
         const previousPhase = state.phase;
+        const previousSelfRole = state.selfRole;
 
         // Phase slice
         state.phase = view.phase;
@@ -318,6 +329,17 @@ const useGameStore = create(
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
+          state.investigateSubmittedCycle = null;
+        }
+        // Defense-in-depth: if the viewer's role was swapped away from
+        // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
+        // investigate selection so it can't leak into a later cycle.
+        if (
+          previousSelfRole === 'WHITE_HAT_HACKER' &&
+          view.myRole !== 'WHITE_HAT_HACKER'
+        ) {
+          state.pendingInvestigateSelection = null;
+          state.investigateSubmittedCycle = null;
         }
 
         // Session slice
@@ -351,9 +373,12 @@ export function selectIsWhiteHatHacker(state) {
 
 export function selectInvestigateCandidates(state) {
   if (!state.players) return [];
-  return Object.values(state.players).filter(
-    (p) => p.alive && p.playerId !== state.selfId,
-  );
+  return Object.values(state.players)
+    .filter((p) => p.alive && p.playerId !== state.selfId)
+    .sort((a, b) => {
+      const nameCmp = (a.displayName ?? '').localeCompare(b.displayName ?? '');
+      return nameCmp !== 0 ? nameCmp : a.playerId.localeCompare(b.playerId);
+    });
 }
 
 export function selectIsHackerNight(state) {
