@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import useGameStore from '../../stores/gameStore';
 
 // Text glyphs per channel type — retro messenger aesthetic
@@ -41,8 +41,11 @@ function getLastMessageTimestamp(channel) {
 
 function isPrivatePartnerEliminated(channel, players, selfId) {
   if (channel.type !== 'PRIVATE') return false;
+  // Ghost-DM: after elimination the projection strips the dead partner from
+  // `channel.members`, leaving only self. A single-member PRIVATE channel is
+  // therefore proof the partner was eliminated (history preserved, partner gone).
   const otherId = channel.members.find((m) => m !== selfId);
-  if (!otherId) return false;
+  if (!otherId) return true;
   const other = players[otherId];
   return other ? !other.alive : false;
 }
@@ -54,6 +57,20 @@ export default function ChannelSidebar() {
   const unreadCounts = useGameStore((s) => s.unreadCounts);
   const activeChannelId = useGameStore((s) => s.activeChannelId);
   const setActiveChannel = useGameStore((s) => s.setActiveChannel);
+  const myRestrictions = useGameStore((s) => s.myRestrictions);
+
+  // Channel types the viewer is currently jammed on. Memoized on myRestrictions
+  // so the per-row scan inside the channel map is a Set.has() instead of a
+  // fresh scan of the restrictions array every render.
+  const jammedTypes = useMemo(() => {
+    const set = new Set();
+    for (const r of myRestrictions) {
+      if (r.type === 'JAMMED') {
+        for (const t of r.channelTypes ?? []) set.add(t);
+      }
+    }
+    return set;
+  }, [myRestrictions]);
 
   const [focusedId, setFocusedId] = useState(null);
   const rowRefs = useRef(new Map());
@@ -126,6 +143,7 @@ export default function ChannelSidebar() {
           channel.type === 'PRIVATE' &&
           (index === 0 || sorted[index - 1].type !== 'PRIVATE');
         const isLocked = channel.locked;
+        const isJammed = jammedTypes.has(channel.type);
 
         let rowStyle = {
           display: 'flex',
@@ -169,6 +187,11 @@ export default function ChannelSidebar() {
           labelStyle.color = '#999';
         }
 
+        if (isJammed && !isLocked) {
+          labelStyle.color = '#999';
+          labelStyle.fontStyle = 'italic';
+        }
+
         if (isActive) {
           labelStyle.fontWeight = 'bold';
           labelStyle.color = '#0054e3';
@@ -193,7 +216,7 @@ export default function ChannelSidebar() {
           iconStyle.opacity = 0.45;
         }
 
-        const ariaLabel = `${label}${isLocked ? ', locked' : ''}${unread > 0 ? `, ${unread} unread` : ''}`;
+        const ariaLabel = `${label}${isLocked ? ', locked' : ''}${isJammed ? ', jammed' : ''}${unread > 0 ? `, ${unread} unread` : ''}`;
 
         return (
           <div key={channel.id}>
@@ -248,7 +271,7 @@ export default function ChannelSidebar() {
                 focusRowAt(sorted.length - 1);
               }
             }}
-            title={isLocked ? `${label} (locked)` : label}
+            title={isLocked ? `${label} (locked)` : isJammed ? `${label} (jammed)` : label}
           >
             <span style={iconStyle} aria-hidden="true">{icon}</span>
             <span style={labelStyle}>{label}</span>
@@ -264,6 +287,20 @@ export default function ChannelSidebar() {
                 title="Locked"
               >
                 [x]
+              </span>
+            )}
+            {!isLocked && isJammed && (
+              <span
+                aria-hidden="true"
+                style={{
+                  color: '#b22222',
+                  fontSize: 9,
+                  flexShrink: 0,
+                  marginLeft: 1,
+                }}
+                title="Jammed"
+              >
+                [~]
               </span>
             )}
             {unread > 0 && (

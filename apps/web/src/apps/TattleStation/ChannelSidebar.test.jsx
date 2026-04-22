@@ -109,6 +109,33 @@ describe('ChannelSidebar — PRIVATE / DM channel rendering', () => {
     expect(labelEl).toHaveStyle({ opacity: '0.45' });
   });
 
+  it('server-stripped ghost DM (members.length === 1) still renders with reduced opacity', () => {
+    // After elimination the projection removes the dead partner from
+    // channel.members. The sidebar must still treat the channel as
+    // partner-eliminated so the ghost-DM UX signal survives.
+    setStore({
+      selfId: 'p1',
+      channels: {
+        'dm-p1-p2': {
+          id: 'dm-p1-p2',
+          type: 'PRIVATE',
+          members: ['p1'], // partner stripped by projection
+          locked: false,
+          expiresAt: null,
+          label: null,
+          messages: [],
+        },
+      },
+      players: {
+        p1: { playerId: 'p1', displayName: 'Alice', alive: true, connected: true },
+      },
+    });
+
+    render(<ChannelSidebar />);
+    const labelEl = screen.getByText('Private');
+    expect(labelEl).toHaveStyle({ opacity: '0.45' });
+  });
+
   it('living partner channel does NOT apply reduced opacity to label', () => {
     setStore({
       selfId: 'p1',
@@ -146,5 +173,33 @@ describe('ChannelSidebar — PRIVATE / DM channel rendering', () => {
     const headers = screen.getAllByText(/direct messages/i);
     // aria-hidden is set but text still matchable; should render exactly once
     expect(headers).toHaveLength(1);
+  });
+});
+
+describe('ChannelSidebar — JAMMED channel indicator (#76)', () => {
+  beforeEach(() => {
+    useGameStore.setState(useGameStore.getInitialState());
+  });
+
+  it('JAMMED on PRIVATE marks the DM rows with a [~] glyph and jammed aria-label', () => {
+    setStore({
+      selfId: 'p1',
+      channels: {
+        'dm-p1-p2': makeDmChannel('dm-p1-p2', 'Bob', 'p1', 'p2'),
+        global: { id: 'global', type: 'GLOBAL', members: ['p1'], locked: false, expiresAt: null, label: null, messages: [] },
+      },
+      players: {
+        p1: { playerId: 'p1', displayName: 'Alice', alive: true, connected: true },
+        p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true },
+      },
+      myRestrictions: [{ type: 'JAMMED', channelTypes: ['PRIVATE'], expiresAt: 'DAY_RESOLVE' }],
+    });
+
+    render(<ChannelSidebar />);
+    // DM row should carry jammed treatment
+    const dmRow = screen.getByRole('listitem', { name: /bob.*jammed/i });
+    expect(dmRow).toBeInTheDocument();
+    // GLOBAL row should NOT have jammed treatment
+    expect(screen.queryByRole('listitem', { name: /global.*jammed/i })).not.toBeInTheDocument();
   });
 });
