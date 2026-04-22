@@ -53,6 +53,32 @@ export const installedApps = sqliteTable('installed_apps', {
   installedAt: text('installed_at').notNull(),
 });
 
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  displayName: text('display_name').notNull(),
+  avatar: text('avatar'),
+  totalPoints: integer('total_points').notNull().default(0),
+  gamesPlayed: integer('games_played').notNull().default(0),
+  wins: integer('wins').notNull().default(0),
+  losses: integer('losses').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const userSessions = sqliteTable('user_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  token: text('token').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  revokedAt: text('revoked_at'),
+  createdAt: text('created_at').notNull(),
+});
+
 export const userPoints = sqliteTable('user_points', {
   accountId: text('account_id').primaryKey(),
   displayName: text('display_name').notNull(),

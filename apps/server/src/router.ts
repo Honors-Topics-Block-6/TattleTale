@@ -4,10 +4,67 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { generateLobbyCode } from './domain/lobby/lobby-code.js';
-import { installedApps } from '../drizzle/schema.js';
+import { installedApps, users, userSessions } from '../drizzle/schema.js';
 import type { Env } from './config/env.js';
 
 const MAX_LOBBY_CODE_ATTEMPTS = 12;
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function fromBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+async function hashPassword(password: string, saltB64: string): Promise<string> {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  );
+  const derived = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: fromBase64(saltB64),
+      iterations: 120_000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256,
+  );
+  return toBase64(new Uint8Array(derived));
+}
+
+async function createPasswordHash(password: string): Promise<{ salt: string; hash: string }> {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const saltB64 = toBase64(salt);
+  const hash = await hashPassword(password, saltB64);
+  return { salt: saltB64, hash };
+}
+
+async function verifyPassword(password: string, salt: string, expectedHash: string): Promise<boolean> {
+  const hash = await hashPassword(password, salt);
+  if (hash.length !== expectedHash.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hash.length; i += 1) diff |= hash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
+  return diff === 0;
+}
+
+function extractBearerToken(authHeader: string | undefined): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+}
 
 export function createRouter() {
   const router = new Hono<{ Bindings: Env }>();
@@ -33,6 +90,210 @@ export function createRouter() {
     } catch {
       return c.json({ d1: 'error' }, 503);
     }
+  });
+
+  const authBodySchema = z.object({
+    email: z.string().email().max(200),
+    password: z.string().min(8).max(200),
+  });
+  const registerBodySchema = authBodySchema.extend({
+    displayName: z.string().min(2).max(24),
+  });
+
+  router.post('/api/auth/register', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = registerBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ ok: false, error: 'Invalid body' }, 400);
+    }
+    const db = drizzle(c.env.DB);
+    const email = parsed.data.email.trim().toLowerCase();
+    const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (existing.length > 0) {
+      return c.json({ ok: false, error: 'Email already registered' }, 409);
+    }
+
+    const now = new Date().toISOString();
+    const userId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const token = crypto.randomUUID() + crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    const { salt, hash } = await createPasswordHash(parsed.data.password);
+
+    await db.insert(users).values({
+      id: userId,
+      email,
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: parsed.data.displayName.trim(),
+      avatar: null,
+      totalPoints: 0,
+      gamesPlayed: 0,
+      wins: 0,
+      losses: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(userSessions).values({
+      id: sessionId,
+      userId,
+      token,
+      expiresAt,
+      revokedAt: null,
+      createdAt: now,
+    });
+
+    return c.json({
+      ok: true,
+      token,
+      user: {
+        id: userId,
+        email,
+        displayName: parsed.data.displayName.trim(),
+        avatar: null,
+        totalPoints: 0,
+        gamesPlayed: 0,
+        wins: 0,
+        losses: 0,
+      },
+    });
+  });
+
+  router.post('/api/auth/login', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = authBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ ok: false, error: 'Invalid body' }, 400);
+    }
+    const db = drizzle(c.env.DB);
+    const email = parsed.data.email.trim().toLowerCase();
+    const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const user = rows[0];
+    if (!user) {
+      return c.json({ ok: false, error: 'Invalid credentials' }, 401);
+    }
+    const valid = await verifyPassword(parsed.data.password, user.passwordSalt, user.passwordHash);
+    if (!valid) {
+      return c.json({ ok: false, error: 'Invalid credentials' }, 401);
+    }
+
+    const now = new Date().toISOString();
+    const token = crypto.randomUUID() + crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    await db.insert(userSessions).values({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      token,
+      expiresAt,
+      revokedAt: null,
+      createdAt: now,
+    });
+    return c.json({
+      ok: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        totalPoints: user.totalPoints,
+        gamesPlayed: user.gamesPlayed,
+        wins: user.wins,
+        losses: user.losses,
+      },
+    });
+  });
+
+  router.post('/api/auth/logout', async (c) => {
+    const token = extractBearerToken(c.req.header('authorization'));
+    if (!token) return c.json({ ok: true });
+    const now = new Date().toISOString();
+    await c.env.DB.prepare('UPDATE user_sessions SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL')
+      .bind(now, token)
+      .run();
+    return c.json({ ok: true });
+  });
+
+  router.get('/api/auth/me', async (c) => {
+    const token = extractBearerToken(c.req.header('authorization'));
+    if (!token) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    const result = await c.env.DB.prepare(`
+      SELECT
+        u.id,
+        u.email,
+        u.display_name AS displayName,
+        u.avatar,
+        u.total_points AS totalPoints,
+        u.games_played AS gamesPlayed,
+        u.wins,
+        u.losses
+      FROM user_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token = ?
+        AND s.revoked_at IS NULL
+        AND s.expires_at > ?
+      LIMIT 1
+    `).bind(token, new Date().toISOString()).all();
+    const user = (result as any).results?.[0];
+    if (!user) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    return c.json({ ok: true, user });
+  });
+
+  const updateProfileSchema = z.object({
+    displayName: z.string().min(2).max(24).optional(),
+    avatar: z.string().max(2000).nullable().optional(),
+  });
+
+  router.put('/api/profile', async (c) => {
+    const token = extractBearerToken(c.req.header('authorization'));
+    if (!token) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    const body = await c.req.json().catch(() => null);
+    const parsed = updateProfileSchema.safeParse(body);
+    if (!parsed.success) return c.json({ ok: false, error: 'Invalid body' }, 400);
+
+    const sessionResult = await c.env.DB.prepare(`
+      SELECT u.id
+      FROM user_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token = ?
+        AND s.revoked_at IS NULL
+        AND s.expires_at > ?
+      LIMIT 1
+    `).bind(token, new Date().toISOString()).all();
+    const sessionUser = (sessionResult as any).results?.[0];
+    if (!sessionUser?.id) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(`
+      UPDATE users
+      SET
+        display_name = COALESCE(?, display_name),
+        avatar = CASE WHEN ? = 1 THEN ? ELSE avatar END,
+        updated_at = ?
+      WHERE id = ?
+    `).bind(
+      parsed.data.displayName ?? null,
+      parsed.data.avatar !== undefined ? 1 : 0,
+      parsed.data.avatar ?? null,
+      now,
+      sessionUser.id,
+    ).run();
+
+    const updated = await c.env.DB.prepare(`
+      SELECT
+        id,
+        email,
+        display_name AS displayName,
+        avatar,
+        total_points AS totalPoints,
+        games_played AS gamesPlayed,
+        wins,
+        losses
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `).bind(sessionUser.id).all();
+    return c.json({ ok: true, user: (updated as any).results?.[0] ?? null });
   });
 
   // Store routes
@@ -174,13 +435,13 @@ export function createRouter() {
     const leaderboardStmt = c.env.DB.prepare(`
       WITH ranked AS (
         SELECT
-          account_id AS accountId,
+          id AS accountId,
           display_name AS displayName,
           total_points AS totalPoints,
           games_played AS gamesPlayed,
           wins,
           RANK() OVER (ORDER BY total_points DESC) AS rank
-        FROM user_points
+        FROM users
       )
       SELECT accountId, displayName, totalPoints, gamesPlayed, wins, rank
       FROM ranked
@@ -188,7 +449,7 @@ export function createRouter() {
       LIMIT ? OFFSET ?
     `).bind(limit, offset);
 
-    const totalStmt = c.env.DB.prepare('SELECT COUNT(*) AS total FROM user_points');
+    const totalStmt = c.env.DB.prepare('SELECT COUNT(*) AS total FROM users');
     const [leaderboardResult, totalResult] = await c.env.DB.batch([leaderboardStmt, totalStmt]);
     const entries = ((leaderboardResult as any).results ?? []) as Array<{
       accountId: string;
@@ -205,13 +466,13 @@ export function createRouter() {
       const userRankStmt = c.env.DB.prepare(`
         WITH ranked AS (
           SELECT
-            account_id AS accountId,
+            id AS accountId,
             display_name AS displayName,
             total_points AS totalPoints,
             games_played AS gamesPlayed,
             wins,
             RANK() OVER (ORDER BY total_points DESC) AS rank
-          FROM user_points
+          FROM users
         )
         SELECT accountId, displayName, totalPoints, gamesPlayed, wins, rank
         FROM ranked

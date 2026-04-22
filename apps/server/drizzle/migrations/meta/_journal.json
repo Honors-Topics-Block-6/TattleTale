@@ -15,6 +15,13 @@
       "when": 1776844800000,
       "tag": "0001_global_points_leaderboard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776889800000,
+      "tag": "0002_user_accounts_auth",
+      "breakpoints": true
     }
   ]
 }

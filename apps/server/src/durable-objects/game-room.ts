@@ -384,29 +384,22 @@ export class GameRoomDO implements DurableObject {
 
     const statements = pointAwards.map((award) =>
       this.env.DB.prepare(`
-        INSERT INTO user_points (
-          account_id,
-          display_name,
-          total_points,
-          games_played,
-          wins,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, 1, ?, ?, ?)
-        ON CONFLICT(account_id) DO UPDATE SET
-          display_name = excluded.display_name,
-          total_points = user_points.total_points + excluded.total_points,
-          games_played = user_points.games_played + 1,
-          wins = user_points.wins + excluded.wins,
-          updated_at = excluded.updated_at
+        UPDATE users
+        SET
+          display_name = ?,
+          total_points = total_points + ?,
+          games_played = games_played + 1,
+          wins = wins + ?,
+          losses = losses + ?,
+          updated_at = ?
+        WHERE id = ?
       `).bind(
-        award.accountId,
         award.displayName,
         award.points,
         award.didWin ? 1 : 0,
+        award.didWin ? 0 : 1,
         now,
-        now,
+        award.accountId,
       )
     );
 
