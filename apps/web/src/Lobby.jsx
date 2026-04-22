@@ -456,11 +456,50 @@ function JoinScreen({
   );
 }
 
+const ROLE_INFO = [
+  { id: 'EXTROVERT', name: 'Extrovert', team: 'Friends', desc: 'Creates temporary group chats' },
+  { id: 'WHITE_HAT_HACKER', name: 'White Hat Hacker', team: 'Friends', desc: 'Investigates player roles' },
+  { id: 'SECURITY_SPECIALIST', name: 'Security Specialist', team: 'Friends', desc: 'Protects a player from hacking' },
+  { id: 'THE_BOSS', name: 'The Boss', team: 'Hackers', desc: 'Makes the final elimination call' },
+  { id: 'SIGNAL_JAMMER', name: 'Signal Jammer', team: 'Hackers', desc: 'Jams private messages' },
+  { id: 'EAVESDROPPER', name: 'Eavesdropper', team: 'Hackers', desc: 'Monitors private messages' },
+  { id: 'TROLLER', name: 'Troller', team: 'Hackers', desc: 'Alters messages' },
+  { id: 'IMITATOR', name: 'Imitator', team: 'Hackers', desc: 'Impersonates a player' },
+];
+
 function RoomScreen({ lobbyView, selfId, onStart, onLeave, busy, errorMsg }) {
+  const socket = useSocket();
   const players = lobbyView?.players ?? [];
   const code = lobbyView?.code ?? '—';
+  const settings = lobbyView?.settings;
   const self = players.find((p) => p.playerId === selfId);
   const isHost = !!self?.isHost;
+  const [showSettings, setShowSettings] = useState(false);
+
+  const enabledRoles = new Set(settings?.enabledRoles ?? []);
+
+  const handleToggleRole = async (roleId) => {
+    if (!isHost) return;
+    const updated = enabledRoles.has(roleId)
+      ? [...enabledRoles].filter((r) => r !== roleId)
+      : [...enabledRoles, roleId];
+    try {
+      await socket.send('updateSettings', { settings: { enabledRoles: updated } });
+    } catch (err) {
+      console.error('Failed to update settings:', err);
+    }
+  };
+
+  const handleTimerChange = async (field, value) => {
+    if (!isHost) return;
+    const num = parseInt(value, 10);
+    if (Number.isNaN(num)) return;
+    try {
+      await socket.send('updateSettings', { settings: { [field]: num } });
+    } catch (err) {
+      console.error('Failed to update settings:', err);
+    }
+  };
 
   return (
     <div
@@ -473,7 +512,8 @@ function RoomScreen({ lobbyView, selfId, onStart, onLeave, busy, errorMsg }) {
         padding: '16px 24px',
         borderRadius: 6,
         border: '1px solid rgba(255,255,255,0.18)',
-        minWidth: 320,
+        minWidth: 340,
+        maxWidth: 440,
       }}
     >
       <div style={{ textAlign: 'center' }}>
@@ -529,6 +569,155 @@ function RoomScreen({ lobbyView, selfId, onStart, onLeave, busy, errorMsg }) {
           ))}
         </ul>
       </div>
+
+      {/* Settings toggle */}
+      <button
+        onClick={() => setShowSettings((v) => !v)}
+        style={{
+          width: '100%',
+          padding: '6px 10px',
+          fontSize: 12,
+          fontFamily: 'Tahoma, sans-serif',
+          color: '#fff',
+          background: 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 3,
+          cursor: 'pointer',
+          textAlign: 'left',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <span>Game Settings</span>
+        <span style={{ fontSize: 10 }}>{showSettings ? '▲' : '▼'}</span>
+      </button>
+
+      {showSettings && (
+        <div
+          style={{
+            width: '100%',
+            background: 'rgba(0,0,0,0.2)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 4,
+            padding: 12,
+          }}
+        >
+          {/* Timers */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 6, fontWeight: 'bold' }}>
+              Timers
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <label style={{ flex: 1, fontSize: 11, color: '#ccc' }}>
+                Day (sec)
+                <input
+                  type="number"
+                  min={30}
+                  max={600}
+                  value={settings?.dayDurationSeconds ?? 180}
+                  disabled={!isHost}
+                  onChange={(e) => handleTimerChange('dayDurationSeconds', e.target.value)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    marginTop: 2,
+                    padding: '4px 6px',
+                    fontSize: 12,
+                    fontFamily: 'Tahoma, sans-serif',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 2,
+                    background: isHost ? '#fff' : 'rgba(255,255,255,0.1)',
+                    color: isHost ? '#333' : '#aaa',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </label>
+              <label style={{ flex: 1, fontSize: 11, color: '#ccc' }}>
+                Night (sec)
+                <input
+                  type="number"
+                  min={15}
+                  max={300}
+                  value={settings?.nightDurationSeconds ?? 60}
+                  disabled={!isHost}
+                  onChange={(e) => handleTimerChange('nightDurationSeconds', e.target.value)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    marginTop: 2,
+                    padding: '4px 6px',
+                    fontSize: 12,
+                    fontFamily: 'Tahoma, sans-serif',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 2,
+                    background: isHost ? '#fff' : 'rgba(255,255,255,0.1)',
+                    color: isHost ? '#333' : '#aaa',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Roles */}
+          <div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 6, fontWeight: 'bold' }}>
+              Roles
+            </div>
+
+            {['Friends', 'Hackers'].map((team) => (
+              <div key={team} style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    color: team === 'Friends' ? '#66bb6a' : '#ef5350',
+                    marginBottom: 4,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {team}
+                </div>
+                {ROLE_INFO.filter((r) => r.team === team).map((role) => {
+                  const enabled = enabledRoles.has(role.id);
+                  return (
+                    <label
+                      key={role.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '3px 4px',
+                        fontSize: 11,
+                        color: enabled ? '#fff' : 'rgba(255,255,255,0.4)',
+                        cursor: isHost ? 'pointer' : 'default',
+                        borderRadius: 2,
+                        marginBottom: 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        disabled={!isHost}
+                        onChange={() => handleToggleRole(role.id)}
+                        style={{ margin: 0, cursor: isHost ? 'pointer' : 'default' }}
+                      />
+                      <span>
+                        <strong>{role.name}</strong>
+                        <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: 4 }}>
+                          — {role.desc}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ErrorBanner message={errorMsg} />
 

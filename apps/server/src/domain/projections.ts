@@ -71,6 +71,7 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
     })),
     settings: { ...lobby.settings },
     sessionId: lobby.sessionId,
+    revision: lobby.revision,
   };
 }
 
@@ -93,7 +94,9 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
   let myTeammates: string[] = [];
   let hackerNightView: HackerNightView | null = null;
 
-  if (player?.alive && player.team === Team.HACKERS) {
+  const viewerIsLivingHacker = !!player?.alive && player.team === Team.HACKERS;
+
+  if (viewerIsLivingHacker) {
     myTeammates = Object.values(session.players)
       .filter((p) => p.alive && p.team === Team.HACKERS && p.playerId !== playerId)
       .map((p) => p.playerId);
@@ -134,12 +137,21 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     currentPhaseEndsAt: session.timers.currentPhaseEndsAt,
     phaseDurationSeconds: session.timers.currentPhaseDurationSeconds,
     voteTally: voteTallyHasAny ? voteTally : null,
-    players: Object.values(session.players).map((p) => ({
-      playerId: p.playerId,
-      displayName: p.displayName,
-      alive: p.alive,
-      connected: p.connected,
-    })),
+    players: Object.values(session.players).map((p) => {
+      const base = {
+        playerId: p.playerId,
+        displayName: p.displayName,
+        alive: p.alive,
+        connected: p.connected,
+      };
+
+      // Living hackers see their teammates' roles and team; dead hackers lose the reveal.
+      if (viewerIsLivingHacker && p.team === Team.HACKERS) {
+        return { ...base, role: p.roleId ?? undefined, team: p.team };
+      }
+
+      return base;
+    }),
     channels: Object.values(session.channels)
       .filter((ch) => ch.members.includes(playerId))
       .map((ch) => {

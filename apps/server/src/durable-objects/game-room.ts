@@ -3,7 +3,7 @@ import type { LobbyState } from '../domain/lobby/types.js';
 import type { GameState } from '../domain/game/types.js';
 import type { ServerMessage, ClientMessageType } from '@tattletale/shared';
 import { LobbyStatus, SessionStatus } from '@tattletale/shared';
-import { DEFAULT_LOBBY_SETTINGS } from '../domain/lobby/types.js';
+import { DEFAULT_LOBBY_SETTINGS, touchLobby } from '../domain/lobby/types.js';
 import { validateDisplayName } from '../domain/lobby/lobby-code.js';
 import { reconcileSessionRuntime } from '../domain/game/runtime-domain.js';
 import { toLobbyView, toPlayerSessionView } from '../domain/projections.js';
@@ -16,6 +16,7 @@ import {
   handleKickPlayer,
   handleStartGame,
   handleSubmitIntent,
+  handleUpdateSettings,
   persistRuntimeEvents,
   generateToken,
   selectNextHost,
@@ -106,6 +107,7 @@ export class GameRoomDO implements DurableObject {
       sessionId: null,
       createdAt: now,
       updatedAt: now,
+      revision: 0,
     };
 
     // If there was old state from a previous game, clear it
@@ -185,6 +187,9 @@ export class GameRoomDO implements DurableObject {
       case 'submitIntent':
         result = await handleSubmitIntent(ctx, ws, payload as any);
         break;
+      case 'updateSettings':
+        result = await handleUpdateSettings(ctx, ws, payload as any);
+        break;
       default:
         result = { ok: false, code: 'UNKNOWN_TYPE', message: `Unknown type: ${type}` };
     }
@@ -221,7 +226,7 @@ export class GameRoomDO implements DurableObject {
           assignHost(lobby, selectNextHost(candidates));
         }
 
-        lobby.updatedAt = new Date().toISOString();
+        touchLobby(lobby, new Date().toISOString());
         await this.repo.saveLobby(lobby);
         this.broadcastLobbyState(lobby);
       }
@@ -327,7 +332,7 @@ export class GameRoomDO implements DurableObject {
 
     // Update lobby status
     lobby.status = LobbyStatus.CLOSED;
-    lobby.updatedAt = new Date().toISOString();
+    touchLobby(lobby, new Date().toISOString());
     await this.repo.saveLobby(lobby);
 
     // Final broadcast

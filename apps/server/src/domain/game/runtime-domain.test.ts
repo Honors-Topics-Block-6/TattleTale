@@ -1,4 +1,5 @@
-import { ChannelType, IntentType, LobbyStatus, NightActionType, Phase, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { ChannelType, IntentType, LobbyStatus, NightActionType, Phase, RoleId, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+
 import { describe, expect, it } from 'vitest';
 
 import type { LobbyState } from '../lobby/types.js';
@@ -6,6 +7,7 @@ import { DEFAULT_LOBBY_SETTINGS } from '../lobby/types.js';
 import type { GameState } from './types.js';
 import {
   appendIntent,
+  buildRolePool,
   calculatePhaseDurations,
   initializeSessionRuntime,
   processElimination,
@@ -36,14 +38,14 @@ function buildLobby(playerCount: number): LobbyState {
     sessionId: 'game-1',
     createdAt,
     updatedAt: createdAt,
+    revision: 0,
   };
 }
 
 describe('runtime-domain', () => {
   it('allocates deterministic 70/20/10 and 75/15/10 phase splits', () => {
     const durations = calculatePhaseDurations({
-      minPlayers: 7,
-      maxPlayers: 20,
+      ...DEFAULT_LOBBY_SETTINGS,
       dayDurationSeconds: 180,
       nightDurationSeconds: 60,
     });
@@ -1062,5 +1064,123 @@ describe('runtime-domain', () => {
         }
       });
     });
+  });
+});
+
+describe('buildRolePool', () => {
+  it('returns pool of correct size filled with base role when no roles enabled', () => {
+    const pool = buildRolePool(Team.FRIENDS, 5, 7, []);
+    expect(pool).toHaveLength(5);
+    expect(pool.every((r) => r === RoleId.FRIEND)).toBe(true);
+  });
+
+  it('returns hacker base roles when no roles enabled for hackers', () => {
+    const pool = buildRolePool(Team.HACKERS, 2, 7, []);
+    expect(pool).toHaveLength(2);
+    expect(pool.every((r) => r === RoleId.HACKER)).toBe(true);
+  });
+
+  it('includes special roles that are enabled and meet minPlayers', () => {
+    const pool = buildRolePool(Team.FRIENDS, 5, 7, [
+      RoleId.EXTROVERT,
+      RoleId.WHITE_HAT_HACKER,
+      RoleId.SECURITY_SPECIALIST,
+    ]);
+    expect(pool).toHaveLength(5);
+    expect(pool.filter((r) => r !== RoleId.FRIEND)).toHaveLength(3);
+    expect(pool).toContain(RoleId.EXTROVERT);
+    expect(pool).toContain(RoleId.WHITE_HAT_HACKER);
+    expect(pool).toContain(RoleId.SECURITY_SPECIALIST);
+  });
+
+  it('excludes roles that do not meet minPlayers threshold', () => {
+    // TROLLER requires minPlayers 11, but we only have 7
+    const pool = buildRolePool(Team.HACKERS, 2, 7, [RoleId.THE_BOSS, RoleId.TROLLER]);
+    expect(pool).toHaveLength(2);
+    expect(pool).toContain(RoleId.THE_BOSS);
+    expect(pool).not.toContain(RoleId.TROLLER);
+  });
+
+  it('caps special roles at teamSize - 1 to guarantee at least one base role', () => {
+    const pool = buildRolePool(Team.HACKERS, 2, 11, [
+      RoleId.THE_BOSS,
+      RoleId.SIGNAL_JAMMER,
+      RoleId.EAVESDROPPER,
+      RoleId.TROLLER,
+      RoleId.IMITATOR,
+    ]);
+    expect(pool).toHaveLength(2);
+    expect(pool.filter((r) => r === RoleId.HACKER)).toHaveLength(1);
+    expect(pool.filter((r) => r !== RoleId.HACKER)).toHaveLength(1);
+  });
+
+  it('ignores roles from the wrong team', () => {
+    const pool = buildRolePool(Team.FRIENDS, 3, 7, [RoleId.THE_BOSS, RoleId.EXTROVERT]);
+    expect(pool).not.toContain(RoleId.THE_BOSS);
+    expect(pool).toContain(RoleId.EXTROVERT);
+  });
+});
+
+describe('role assignment via initializeSessionRuntime', () => {
+  it('assigns a non-null roleId to every player', () => {
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0.5);
+
+    for (const player of Object.values(session.players)) {
+      expect(player.roleId).not.toBeNull();
+    }
+  });
+
+  it('assigns friend-team roles only to friends and hacker-team roles only to hackers', () => {
+    const lobby = buildLobby(10);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0.5);
+
+    const friendRoles = new Set([RoleId.FRIEND, RoleId.EXTROVERT, RoleId.WHITE_HAT_HACKER, RoleId.SECURITY_SPECIALIST]);
+    const hackerRoles = new Set([RoleId.HACKER, RoleId.THE_BOSS, RoleId.SIGNAL_JAMMER, RoleId.EAVESDROPPER, RoleId.TROLLER, RoleId.IMITATOR]);
+
+    for (const player of Object.values(session.players)) {
+      if (player.team === Team.FRIENDS) {
+        expect(friendRoles.has(player.roleId as RoleId)).toBe(true);
+      } else {
+        expect(hackerRoles.has(player.roleId as RoleId)).toBe(true);
+      }
+    }
+  });
+
+  it('assigns all base roles when enabledRoles is empty', () => {
+    const lobby = buildLobby(7);
+    lobby.settings.enabledRoles = [];
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0.5);
+
+    for (const player of Object.values(session.players)) {
+      if (player.team === Team.FRIENDS) {
+        expect(player.roleId).toBe(RoleId.FRIEND);
+      } else {
+        expect(player.roleId).toBe(RoleId.HACKER);
+      }
+    }
+  });
+
+  it('produces deterministic assignments with a seeded random', () => {
+    const lobby = buildLobby(10);
+    const session1 = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    const session2 = buildSessionFromLobby(lobby, 'game-2', '2026-03-17T00:00:00.000Z');
+
+    let seed = 0.42;
+    const seeded = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+
+    let seed2 = 0.42;
+    const seeded2 = () => { seed2 = (seed2 * 9301 + 49297) % 233280; return seed2 / 233280; };
+
+    initializeSessionRuntime(session1, lobby.settings, '2026-03-17T00:00:00.000Z', seeded);
+    initializeSessionRuntime(session2, lobby.settings, '2026-03-17T00:00:00.000Z', seeded2);
+
+    for (const playerId of Object.keys(session1.players)) {
+      expect(session1.players[playerId].roleId).toBe(session2.players[playerId].roleId);
+      expect(session1.players[playerId].team).toBe(session2.players[playerId].team);
+    }
   });
 });

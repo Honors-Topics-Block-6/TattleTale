@@ -12,6 +12,7 @@ import {
   type KickPlayerPayload,
   type RejoinLobbyPayload,
   type SubmitIntentPayload,
+  type UpdateSettingsPayload,
 } from '@tattletale/shared';
 
 import { DomainError } from '../domain/errors.js';
@@ -33,7 +34,7 @@ import type {
   VoteIntentPayload,
 } from '../domain/game/types.js';
 import { validateDisplayName } from '../domain/lobby/lobby-code.js';
-import type { LobbyState } from '../domain/lobby/types.js';
+import { touchLobby, type LobbyState } from '../domain/lobby/types.js';
 import { toLobbyView, toPlayerSessionView } from '../domain/projections.js';
 import type {
   GameAuditRepository,
@@ -322,7 +323,7 @@ export async function handleJoinLobby(
       reconnectToken,
       joinedAt: now,
     });
-    lobby.updatedAt = now;
+    touchLobby(lobby, now);
 
     await ctx.repo.saveLobby(lobby);
     await ctx.repo.savePlayerRecord(playerId, {
@@ -388,7 +389,7 @@ export async function handleRejoinLobby(
     const newToken = generateToken();
     player.reconnectToken = newToken;
     player.connected = true;
-    lobby.updatedAt = now;
+    touchLobby(lobby, now);
 
     await ctx.repo.saveLobby(lobby);
     await ctx.repo.savePlayerRecord(payload.playerId, {
@@ -459,7 +460,7 @@ export async function handleKickPlayer(
     if (lobby.status === LobbyStatus.WAITING) {
       // Remove from lobby outright
       lobby.players = lobby.players.filter((p) => p.playerId !== payload.targetPlayerId);
-      lobby.updatedAt = now;
+      touchLobby(lobby, now);
 
       await ctx.repo.saveLobby(lobby);
 
@@ -518,7 +519,7 @@ export async function handleKickPlayer(
       assignHost(lobby, selectNextHost(candidates));
     }
 
-    lobby.updatedAt = now;
+    touchLobby(lobby, now);
 
     // Mark kicked
     const record = await ctx.repo.getPlayerRecord(payload.targetPlayerId);
@@ -586,7 +587,7 @@ export async function handleStartGame(
 
     lobby.status = LobbyStatus.IN_GAME;
     lobby.sessionId = gameId;
-    lobby.updatedAt = now;
+    touchLobby(lobby, now);
 
     await ctx.repo.saveSession(session);
     await ctx.repo.saveLobby(lobby);
@@ -608,7 +609,7 @@ export async function handleStartGame(
           displayName: p.displayName,
           alive: p.alive,
           isHost: p.isHost,
-          roleId: null,
+          roleId: session.players[p.playerId]?.roleId ?? null,
           team: session.players[p.playerId]?.team ?? 'UNKNOWN',
         })),
       });
@@ -637,6 +638,49 @@ export async function handleStartGame(
     if (error instanceof DomainError) {
       return fail(error.code, error.message);
     }
+    return fail('INTERNAL_ERROR', 'An unexpected error occurred.');
+  }
+}
+
+export async function handleUpdateSettings(
+  ctx: HandlerContext,
+  ws: WebSocket,
+  payload: UpdateSettingsPayload,
+): Promise<HandlerResult> {
+  try {
+    const actorId = requirePlayerId(ctx, ws);
+    const lobby = requireLobby(await ctx.repo.getLobby());
+    const { player: actor } = requirePlayerInLobby(lobby, actorId);
+
+    if (!actor.isHost) {
+      return fail('NOT_HOST', 'Only the host can update settings.');
+    }
+
+    if (lobby.status !== LobbyStatus.WAITING) {
+      return fail('GAME_IN_PROGRESS', 'Cannot update settings after the game has started.');
+    }
+
+    // Optimistic lock: reject if the client's view of the lobby is stale (e.g. a concurrent
+    // start-game or update from another host tab has already landed).
+    if (payload.expectedRevision !== undefined && payload.expectedRevision !== lobby.revision) {
+      return fail('LOBBY_REVISION_MISMATCH', 'Lobby has been modified since your last view. Reload and try again.');
+    }
+
+    const updates = payload.settings;
+    if (updates.minPlayers !== undefined) lobby.settings.minPlayers = updates.minPlayers;
+    if (updates.maxPlayers !== undefined) lobby.settings.maxPlayers = updates.maxPlayers;
+    if (updates.dayDurationSeconds !== undefined) lobby.settings.dayDurationSeconds = updates.dayDurationSeconds;
+    if (updates.nightDurationSeconds !== undefined) lobby.settings.nightDurationSeconds = updates.nightDurationSeconds;
+    if (updates.enabledRoles !== undefined) lobby.settings.enabledRoles = updates.enabledRoles;
+
+    touchLobby(lobby, new Date().toISOString());
+
+    await ctx.repo.saveLobby(lobby);
+    ctx.broadcastLobbyState(lobby);
+
+    return ok({ lobby: toLobbyView(lobby) });
+  } catch (err) {
+    if (err instanceof DomainError) return fail(err.code, err.message);
     return fail('INTERNAL_ERROR', 'An unexpected error occurred.');
   }
 }

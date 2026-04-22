@@ -3,6 +3,8 @@ import {
   IntentType,
   NightActionType,
   Phase,
+  RoleId,
+  ROLE_DEFINITIONS,
   SessionStatus,
   SystemEventType,
   Team,
@@ -17,7 +19,7 @@ import {
   clearExpiredRestrictions,
 } from './restrictions.js';
 
-import type { LobbySettings, LobbyState } from '../lobby/types.js';
+import { touchLobby, type LobbySettings, type LobbyState } from '../lobby/types.js';
 import type {
   ChannelState,
   GameState,
@@ -111,6 +113,7 @@ export function initializeSessionRuntime(
   random: () => number = Math.random,
 ): void {
   assignTeams(session, random);
+  assignRoles(session, settings.enabledRoles ?? [], random);
 
   // Populate hacker channel with assigned Team.HACKERS players.
   if (session.channels.hacker) {
@@ -622,6 +625,74 @@ function chooseHackerCount(playerCount: number): number {
   return 1;
 }
 
+export function buildRolePool(
+  team: Team,
+  teamSize: number,
+  totalPlayerCount: number,
+  enabledRoles: string[],
+): RoleId[] {
+  const baseRole = team === Team.HACKERS ? RoleId.HACKER : RoleId.FRIEND;
+  const enabledSet = new Set(enabledRoles);
+
+  const specialRoles: RoleId[] = [];
+  for (const [roleId, def] of ROLE_DEFINITIONS) {
+    if (
+      def.team === team
+      && !def.isBase
+      && enabledSet.has(roleId)
+      && def.minPlayers <= totalPlayerCount
+    ) {
+      specialRoles.push(roleId);
+    }
+  }
+
+  const maxSpecial = Math.max(0, teamSize - 1);
+  const pool: RoleId[] = specialRoles.slice(0, maxSpecial);
+  while (pool.length < teamSize) {
+    pool.push(baseRole);
+  }
+
+  return pool;
+}
+
+function assignRoles(
+  session: GameState,
+  enabledRoles: string[],
+  random: () => number,
+): void {
+  const friends: string[] = [];
+  const hackers: string[] = [];
+
+  for (const [playerId, player] of Object.entries(session.players)) {
+    if (player.team === Team.HACKERS) {
+      hackers.push(playerId);
+    } else {
+      friends.push(playerId);
+    }
+  }
+
+  const totalPlayerCount = friends.length + hackers.length;
+  const friendPool = buildRolePool(Team.FRIENDS, friends.length, totalPlayerCount, enabledRoles);
+  const hackerPool = buildRolePool(Team.HACKERS, hackers.length, totalPlayerCount, enabledRoles);
+
+  fisherYatesShuffle(friendPool, random);
+  fisherYatesShuffle(hackerPool, random);
+
+  for (let i = 0; i < friends.length; i++) {
+    session.players[friends[i]].roleId = friendPool[i];
+  }
+  for (let i = 0; i < hackers.length; i++) {
+    session.players[hackers[i]].roleId = hackerPool[i];
+  }
+}
+
+function fisherYatesShuffle<T>(array: T[], random: () => number): void {
+  for (let index = array.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [array[index], array[swapIndex]] = [array[swapIndex], array[index]];
+  }
+}
+
 function assignTeams(
   session: GameState,
   random: () => number,
@@ -629,10 +700,7 @@ function assignTeams(
   const playerIds = Object.keys(session.players);
   const shuffled = [...playerIds];
 
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
+  fisherYatesShuffle(shuffled, random);
 
   const hackerCount = chooseHackerCount(shuffled.length);
   const hackerIds = new Set(shuffled.slice(0, hackerCount));
@@ -797,7 +865,7 @@ function eliminatePlayer(
   }
 
   session.updatedAt = now;
-  lobby.updatedAt = now;
+  touchLobby(lobby, now);
   return true;
 }
 
