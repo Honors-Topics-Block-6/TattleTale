@@ -375,10 +375,17 @@ export function clearExpiredRestrictions(session: GameState, previousPhase: Phas
 
 /**
  * Compile-time guarantee: every RestrictionType has a matching builder.
- * Adding a new RestrictionType without a builder makes `Exclude<...>` non-`never`,
- * which narrows the guard type to `never` and fails the `const ... = true` assignment.
+ * Derives each builder's produced `type` tag from its return value (not from
+ * its key — keys are lowercase by convention, enum values are uppercase).
+ * Adding a new RestrictionType without a builder leaves the `Exclude<...>`
+ * non-`never`, narrows `_BuilderCoverage` to `never`, and fails the
+ * `const ... = true` assignment.
  */
+type _BuilderReturn<B> = B extends (...args: never[]) => infer R ? R : never;
+type _BuilderProducedTypes = _BuilderReturn<
+  (typeof RestrictionBuilders)[keyof typeof RestrictionBuilders]
+>['type'];
 type _BuilderCoverage =
-  Exclude<RestrictionType, keyof typeof RestrictionBuilders> extends never ? true : never;
+  Exclude<RestrictionType, _BuilderProducedTypes> extends never ? true : never;
 const _coverageGuard: _BuilderCoverage = true;
 void _coverageGuard;
