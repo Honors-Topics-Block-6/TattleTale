@@ -268,7 +268,6 @@ describe('toPlayerSessionView', () => {
       const dmP2P3 = viewP3.channels.find((c) => c.id === 'dm-p2-p3');
       expect(dmP2P3!.label).toBe('Bob');
     });
-
     it('eliminated DM partner: survivor still sees the channel (members=[self], label=null); dead partner no longer sees it', () => {
       // End-to-end flow for the "Bob is eliminated" case. After eliminatePlayer
       // strips Bob from members and flips his alive flag, the shared DM must
