@@ -6,6 +6,7 @@ import { LobbyStatus, SessionStatus } from '@tattletale/shared';
 import { DEFAULT_LOBBY_SETTINGS, touchLobby } from '../domain/lobby/types.js';
 import { validateDisplayName } from '../domain/lobby/lobby-code.js';
 import { reconcileSessionRuntime } from '../domain/game/runtime-domain.js';
+import { computePointAwards } from '../domain/game/points.js';
 import { toLobbyView, toPlayerSessionView } from '../domain/projections.js';
 import { DORuntimeRepository } from '../persistence/do-runtime-repo.js';
 import { D1AuditRepository } from '../persistence/d1-audit-repo.js';
@@ -357,40 +358,17 @@ export class GameRoomDO implements DurableObject {
   }
 
   private async awardGlobalPoints(session: GameState, lobby: LobbyState): Promise<void> {
-    if (!session.winnerTeam) return;
-
-    const now = new Date().toISOString();
-    const lobbyByPlayerId = new Map(lobby.players.map((p) => [p.playerId, p]));
-    const allPlayers = Object.values(session.players);
-    const aliveHackers = allPlayers.filter((p) => p.team === 'HACKERS' && p.alive).length;
-
-    const pointAwards: Array<{ accountId: string; displayName: string; points: number; didWin: boolean }> = [];
-    for (const player of allPlayers) {
-      const lobbyPlayer = lobbyByPlayerId.get(player.playerId);
-      if (!lobbyPlayer?.accountId) continue;
-      const didWin = player.team === session.winnerTeam;
-      let points = 0;
-      if (didWin && session.winnerTeam === 'HACKERS') {
-        points = aliveHackers * 10;
-      } else if (didWin && session.winnerTeam === 'FRIENDS') {
-        points = 60;
-      }
-
-      pointAwards.push({
-        accountId: lobbyPlayer.accountId,
-        displayName: player.displayName,
-        points,
-        didWin,
-      });
-    }
-
+    const pointAwards = computePointAwards(session, lobby);
     if (pointAwards.length === 0) return;
 
+    const now = new Date().toISOString();
+    // Note: display_name is intentionally NOT touched here — users manage their
+    // own display name via the profile endpoint, and overwriting it from a
+    // session snapshot would silently revert edits made mid-game.
     const statements = pointAwards.map((award) =>
       this.env.DB.prepare(`
         UPDATE users
         SET
-          display_name = ?,
           total_points = total_points + ?,
           games_played = games_played + 1,
           wins = wins + ?,
@@ -398,10 +376,9 @@ export class GameRoomDO implements DurableObject {
           updated_at = ?
         WHERE id = ?
       `).bind(
-        award.displayName,
         award.points,
         award.didWin ? 1 : 0,
-        award.didWin ? 0 : 1,
+        award.didLose ? 1 : 0,
         now,
         award.accountId,
       )
@@ -409,8 +386,10 @@ export class GameRoomDO implements DurableObject {
 
     try {
       await this.env.DB.batch(statements);
-    } catch {
-      // Non-fatal: scoring persistence should not block game teardown.
+    } catch (err) {
+      // Non-fatal: scoring persistence should not block game teardown, but
+      // silent failure would mask data loss — log for observability.
+      console.error('[awardGlobalPoints] failed to persist points:', err);
     }
   }
 
@@ -431,6 +410,18 @@ export class GameRoomDO implements DurableObject {
       getAccountIdForWs: (ws) => {
         const att = (ws as any).deserializeAttachment() as WsAttachment;
         return att.accountId ?? null;
+      },
+      getAccountDisplayName: async (accountId) => {
+        try {
+          const result = await this.env.DB.prepare(
+            `SELECT display_name AS displayName FROM users WHERE id = ? LIMIT 1`,
+          ).bind(accountId).all();
+          const row = (result as any).results?.[0] as { displayName?: string } | undefined;
+          return row?.displayName ?? null;
+        } catch {
+          // DB error shouldn't block joins — caller falls back to payload name.
+          return null;
+        }
       },
       broadcastLobbyState: (lobby) => this.broadcastLobbyState(lobby),
       broadcastSessionState: (session) => this.broadcastSessionState(session),

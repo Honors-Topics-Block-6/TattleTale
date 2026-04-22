@@ -115,9 +115,22 @@ async function checkRateLimit(db: D1Database, ip: string, action: keyof typeof R
       ON CONFLICT (ip, action, window_start) DO UPDATE SET attempts = attempts + 1
       RETURNING attempts
     `).bind(ip, action, windowStart).all();
+
+    // Opportunistic GC: drop rows for windows older than the current one for
+    // this (ip, action). The table is otherwise unbounded — without this,
+    // every distinct (ip, action, window_start) tuple accumulates forever.
+    // Swallow errors: GC failure must never affect the rate-limit decision.
+    db.prepare(
+      `DELETE FROM auth_rate_limits WHERE ip = ? AND action = ? AND window_start < ?`,
+    ).bind(ip, action, windowStart).run().catch(() => {});
+
     return ((result as any).results?.[0]?.attempts ?? 1) <= maxAttempts;
   } catch {
-    return true; // fail open rather than block all logins on DB error
+    // Deliberate fail-open: if D1 is unhealthy, blocking every auth attempt
+    // would take the whole app down. The trade-off is that an attacker who
+    // can force D1 errors could bypass rate limiting — monitor D1 errors in
+    // production to catch that scenario.
+    return true;
   }
 }
 
@@ -214,8 +227,8 @@ export function createRouter() {
          VALUES (?, ?, ?, ?, ?, NULL, 0, 0, 0, 0, ?, ?)`,
       ).bind(userId, email, hash, salt, parsed.data.displayName.trim(), now, now),
       c.env.DB.prepare(
-        `INSERT INTO user_sessions (id, user_id, token, token_hash, expires_at, revoked_at, created_at)
-         VALUES (?, ?, '', ?, ?, NULL, ?)`,
+        `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?)`,
       ).bind(sessionId, userId, tokenHash, expiresAt, now),
     ]);
 
@@ -251,11 +264,17 @@ export function createRouter() {
     const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
     const user = rows[0];
 
-    // Always run PBKDF2 to equalize timing whether or not the user exists (C5)
-    const dummySalt = toBase64(new Uint8Array(16));
-    const valid = user
-      ? await verifyPassword(parsed.data.password, user.passwordSalt, user.passwordHash)
-      : await hashPassword(parsed.data.password, dummySalt).then(() => false);
+    // Always run PBKDF2 to equalize timing whether or not the user exists (C5).
+    // When the user row is missing we still burn one PBKDF2 pass on a dummy
+    // salt so the attacker can't distinguish "no such email" from "bad
+    // password" via wall-clock timing.
+    let valid = false;
+    if (user) {
+      valid = await verifyPassword(parsed.data.password, user.passwordSalt, user.passwordHash);
+    } else {
+      const dummySalt = toBase64(new Uint8Array(16));
+      await hashPassword(parsed.data.password, dummySalt);
+    }
 
     if (!user || !valid) {
       return c.json({ ok: false, error: 'Invalid credentials' }, 401);
@@ -266,8 +285,8 @@ export function createRouter() {
     const tokenHash = await hashToken(rawToken);
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
     await c.env.DB.prepare(
-      `INSERT INTO user_sessions (id, user_id, token, token_hash, expires_at, revoked_at, created_at)
-       VALUES (?, ?, '', ?, ?, NULL, ?)`,
+      `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, NULL, ?)`,
     ).bind(crypto.randomUUID(), user.id, tokenHash, expiresAt, now).run();
 
     const secure = c.req.url.startsWith('https');
@@ -319,6 +338,16 @@ export function createRouter() {
     const ticketId = crypto.randomUUID();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + WS_TICKET_TTL_MS).toISOString();
+
+    // Opportunistic GC: drop expired or already-consumed tickets. Tickets are
+    // single-use and short-lived; without this cleanup the table grows
+    // forever. Piggybacking on the insert keeps it amortized and the
+    // `idx_ws_tickets_expires` index makes the delete cheap. Swallow errors
+    // so GC can't block a legitimate ticket issue.
+    c.env.DB.prepare(
+      `DELETE FROM ws_tickets WHERE expires_at < ? OR used = 1`,
+    ).bind(now).run().catch(() => {});
+
     await c.env.DB.prepare(
       `INSERT INTO ws_tickets (id, account_id, used, created_at, expires_at) VALUES (?, ?, 0, ?, ?)`,
     ).bind(ticketId, user.id, now, expiresAt).run();
@@ -351,20 +380,26 @@ export function createRouter() {
     const sessionUser = (sessionResult as any).results?.[0];
     if (!sessionUser?.id) return c.json({ ok: false, error: 'Unauthorized' }, 401);
 
+    // Each optional field gets its own UPDATE guard. `avatar` distinguishes
+    // `undefined` (don't touch) from `null` (explicitly clear), so we can't
+    // fold the two together with COALESCE.
     const now = new Date().toISOString();
-    await c.env.DB.prepare(`
-      UPDATE users
-      SET display_name = COALESCE(?, display_name),
-          avatar = CASE WHEN ? = 1 THEN ? ELSE avatar END,
-          updated_at = ?
-      WHERE id = ?
-    `).bind(
-      parsed.data.displayName ?? null,
-      parsed.data.avatar !== undefined ? 1 : 0,
-      parsed.data.avatar ?? null,
-      now,
-      sessionUser.id,
-    ).run();
+    const stmts: D1PreparedStatement[] = [];
+    if (parsed.data.displayName !== undefined) {
+      stmts.push(
+        c.env.DB.prepare(`UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`)
+          .bind(parsed.data.displayName, now, sessionUser.id),
+      );
+    }
+    if (parsed.data.avatar !== undefined) {
+      stmts.push(
+        c.env.DB.prepare(`UPDATE users SET avatar = ?, updated_at = ? WHERE id = ?`)
+          .bind(parsed.data.avatar, now, sessionUser.id),
+      );
+    }
+    if (stmts.length > 0) {
+      await c.env.DB.batch(stmts);
+    }
 
     const updated = await c.env.DB.prepare(`
       SELECT id, display_name AS displayName, avatar,
@@ -499,9 +534,28 @@ export function createRouter() {
     const doId = c.env.GAME_ROOM.idFromName(code);
     const stub = c.env.GAME_ROOM.get(doId);
 
-    // Forward the upgrade request, injecting the server-verified accountId as an internal header.
-    // This header is set only by the Worker and the DO trusts it (never reachable from clients).
-    const newHeaders = new Headers(c.req.raw.headers);
+    // Build the forwarded headers from an explicit allow-list rather than
+    // copying the raw request. This prevents two classes of bug (B1, B6):
+    //   • B1: a client-supplied `X-Verified-Account-Id` header would otherwise
+    //     pass straight through whenever the WS ticket is missing/invalid,
+    //     letting any caller attribute activity to any account.
+    //   • B6: the incoming `Cookie` header contains the raw session token,
+    //     which the DO has no business seeing and should not be able to log.
+    // Only protocol-required WS headers plus our injected trust header cross
+    // the Worker→DO boundary.
+    const allowedHeaders = [
+      'upgrade',
+      'connection',
+      'sec-websocket-key',
+      'sec-websocket-version',
+      'sec-websocket-protocol',
+      'sec-websocket-extensions',
+    ];
+    const newHeaders = new Headers();
+    for (const name of allowedHeaders) {
+      const value = c.req.raw.headers.get(name);
+      if (value !== null) newHeaders.set(name, value);
+    }
     if (verifiedAccountId) {
       newHeaders.set('X-Verified-Account-Id', verifiedAccountId);
     }
@@ -531,25 +585,28 @@ export function createRouter() {
       sessionUserId = user?.id ?? null;
     }
 
+    // Page query: select columns that exactly match the `idx_users_points`
+    // index so SQLite can answer from the index without an extra sort. The
+    // window function ranks ties deterministically (RANK, not DENSE_RANK) so
+    // paging is stable. `id` is included only as a tiebreaker and is never
+    // returned to the client (C8).
     const leaderboardStmt = c.env.DB.prepare(`
-      WITH ranked AS (
-        SELECT
-          display_name AS displayName,
-          total_points AS totalPoints,
-          games_played AS gamesPlayed,
-          wins,
-          RANK() OVER (ORDER BY total_points DESC) AS rank
-        FROM users
-      )
-      SELECT displayName, totalPoints, gamesPlayed, wins, rank
-      FROM ranked
-      ORDER BY totalPoints DESC, displayName ASC
+      SELECT
+        id,
+        display_name AS displayName,
+        total_points AS totalPoints,
+        games_played AS gamesPlayed,
+        wins,
+        RANK() OVER (ORDER BY total_points DESC) AS rank
+      FROM users
+      ORDER BY total_points DESC, updated_at ASC, id ASC
       LIMIT ? OFFSET ?
     `).bind(limit, offset);
     const totalStmt = c.env.DB.prepare('SELECT COUNT(*) AS total FROM users');
 
     const [leaderboardResult, totalResult] = await c.env.DB.batch([leaderboardStmt, totalStmt]);
-    const entries = ((leaderboardResult as any).results ?? []) as Array<{
+    const rawEntries = ((leaderboardResult as any).results ?? []) as Array<{
+      id: string;
       displayName: string;
       totalPoints: number;
       gamesPlayed: number;
@@ -558,24 +615,39 @@ export function createRouter() {
     }>;
     const total = Number((totalResult as any).results?.[0]?.total ?? 0);
 
+    // Strip the internal `id` column before returning; use it only to compute
+    // the per-row `isCurrentUser` flag so the client doesn't have to guess
+    // based on rank+displayName (fragile for ties or duplicate display names).
+    const entries = rawEntries.map(({ id, ...rest }) => ({
+      ...rest,
+      isCurrentUser: sessionUserId !== null && id === sessionUserId,
+    }));
+
+    // Resolve the session user's rank with a cheap index-backed COUNT rather
+    // than a second full RANK() scan: RANK semantics say "1 + number of rows
+    // with strictly greater total_points", which is what `COUNT(*) WHERE >`
+    // returns. Two queries here are fine because D1.batch pipelines them.
     let currentUser: { displayName: string; totalPoints: number; gamesPlayed: number; wins: number; rank: number } | null = null;
     if (sessionUserId) {
-      const userRankResult = await c.env.DB.prepare(`
-        WITH ranked AS (
-          SELECT
-            id,
-            display_name AS displayName,
-            total_points AS totalPoints,
-            games_played AS gamesPlayed,
-            wins,
-            RANK() OVER (ORDER BY total_points DESC) AS rank
-          FROM users
-        )
-        SELECT displayName, totalPoints, gamesPlayed, wins, rank
-        FROM ranked WHERE id = ?
-        LIMIT 1
-      `).bind(sessionUserId).all();
-      currentUser = ((userRankResult as any).results?.[0] ?? null) as typeof currentUser;
+      const [selfResult, rankResult] = await c.env.DB.batch([
+        c.env.DB.prepare(
+          `SELECT display_name AS displayName, total_points AS totalPoints,
+                  games_played AS gamesPlayed, wins
+           FROM users WHERE id = ? LIMIT 1`,
+        ).bind(sessionUserId),
+        c.env.DB.prepare(
+          `SELECT 1 + COUNT(*) AS rank
+           FROM users
+           WHERE total_points > (SELECT total_points FROM users WHERE id = ?)`,
+        ).bind(sessionUserId),
+      ]);
+      const self = (selfResult as any).results?.[0] as
+        | { displayName: string; totalPoints: number; gamesPlayed: number; wins: number }
+        | undefined;
+      const rank = Number((rankResult as any).results?.[0]?.rank ?? 0);
+      if (self) {
+        currentUser = { ...self, rank };
+      }
     }
 
     return c.json({ ok: true, entries, total, limit, offset, hasMore: offset + entries.length < total, currentUser });

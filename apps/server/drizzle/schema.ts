@@ -73,7 +73,6 @@ export const userSessions = sqliteTable('user_sessions', {
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  token: text('token').notNull(),
   tokenHash: text('token_hash').unique(),
   expiresAt: text('expires_at').notNull(),
   revokedAt: text('revoked_at'),
@@ -93,14 +92,4 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
   action: text('action').notNull(),
   windowStart: text('window_start').notNull(),
   attempts: integer('attempts').notNull().default(0),
-});
-
-export const userPoints = sqliteTable('user_points', {
-  accountId: text('account_id').primaryKey(),
-  displayName: text('display_name').notNull(),
-  totalPoints: integer('total_points').notNull().default(0),
-  gamesPlayed: integer('games_played').notNull().default(0),
-  wins: integer('wins').notNull().default(0),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
 });

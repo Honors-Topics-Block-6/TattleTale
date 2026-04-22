@@ -70,14 +70,12 @@ export default function LeaderboardPanel({ pageSize = 20, compact = false }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => {
-              // Match by rank + name — server marks currentUser separately, no internal ID exposed (C8)
-              const isCurrentUser =
-                currentUser &&
-                entry.rank === currentUser.rank &&
-                entry.displayName === currentUser.displayName;
+            {entries.map((entry, idx) => {
+              // Server sets isCurrentUser per row using the session-derived user id,
+              // so ties or duplicate display names no longer highlight multiple rows.
+              const isCurrentUser = Boolean(entry.isCurrentUser);
               return (
-                <tr key={`${entry.rank}-${entry.displayName}`} style={{ background: isCurrentUser ? '#dff0ff' : 'transparent' }}>
+                <tr key={`${entry.rank}-${entry.displayName}-${idx}`} style={{ background: isCurrentUser ? '#dff0ff' : 'transparent' }}>
                   <td style={{ padding: '6px 8px', borderTop: '1px solid #eee' }}>#{entry.rank}</td>
                   <td style={{ padding: '6px 8px', borderTop: '1px solid #eee' }}>
                     {entry.displayName}

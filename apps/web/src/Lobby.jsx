@@ -106,13 +106,24 @@ export default function Lobby() {
             email: authEmail.trim(),
             password: authPassword,
           });
-      // Session cookie is set by the server — no localStorage token (C3)
-      if (payload.user) {
-        setCurrentUser(payload.user);
-        setDisplayName(payload.user.displayName || randomDisplayName());
-        setProfileDraftName(payload.user.displayName || '');
-        setProfileDraftAvatar(payload.user.avatar || '');
+      // Session cookie is set by the server — no localStorage token (C3).
+      // On register, the server returns { ok: true, user: null } when the
+      // email was already registered (to avoid revealing email existence —
+      // C5). In that case no session cookie was set, so we must stay on the
+      // auth screen instead of advancing into an unauthenticated title.
+      if (!payload.user) {
+        setBusy(false);
+        setErrorMsg(
+          authMode === 'register'
+            ? 'Could not complete registration. If you already have an account, please sign in.'
+            : 'Authentication failed',
+        );
+        return;
       }
+      setCurrentUser(payload.user);
+      setDisplayName(payload.user.displayName || randomDisplayName());
+      setProfileDraftName(payload.user.displayName || '');
+      setProfileDraftAvatar(payload.user.avatar || '');
       setBusy(false);
       setScreen('title');
     } catch (err) {
@@ -610,7 +621,7 @@ function LeaderboardScreen({ onBack }) {
         boxSizing: 'border-box',
       }}
     >
-      <LeaderboardPanel pageSize={15} compact />
+      <LeaderboardPanel pageSize={10} compact />
       <div style={{ marginTop: 10, textAlign: 'center' }}>
         <SecondaryButton onClick={onBack}>Back</SecondaryButton>
       </div>
@@ -634,7 +645,7 @@ function ProfileScreen({
       <div style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Profile</div>
       <div style={{ color: '#fff', fontSize: 11 }}>{user?.email}</div>
       <TextInput value={displayName} onChange={setDisplayName} placeholder="Display name" maxLength={24} />
-      <TextInput value={avatar} onChange={setAvatar} placeholder="Avatar URL (optional)" maxLength={2000} />
+      <TextInput value={avatar} onChange={setAvatar} placeholder="Avatar URL (optional)" maxLength={500} />
       <div style={{ color: '#fff', fontSize: 11 }}>
         Points: {user?.totalPoints ?? 0} | Games: {user?.gamesPlayed ?? 0} | W/L: {user?.wins ?? 0}/{user?.losses ?? 0}
       </div>
