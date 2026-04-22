@@ -24,6 +24,7 @@ const initialState = {
   unreadCounts: {},
   popHistory: {},
   removedChannelIds: [],
+  activeChannelId: null,
 
   // Vote slice
   pendingSelection: null,
@@ -44,6 +45,11 @@ const initialState = {
   pendingIntentTypes: [],
   eliminationCause: null,
   eliminationCycle: null,
+
+  // Active communication restrictions affecting the viewer (#76).
+  // Shape: Array<{ type, expiresAt, channelId?, channelTypes? }> — mirrors
+  // ViewerRestriction from packages/shared/src/contracts/views.ts.
+  myRestrictions: [],
 
   // Lobby slice (pre-game waiting room)
   lobbyView: null,
@@ -101,6 +107,20 @@ const useGameStore = create(
     markPopped: (channelId) =>
       set((state) => {
         state.popHistory[channelId] = true;
+      }),
+
+    setActiveChannel: (channelId) =>
+      set((state) => {
+        if (!state.channels[channelId]) {
+          if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+            console.warn(
+              `setActiveChannel: unknown channelId "${channelId}" — ignored`
+            );
+          }
+          return;
+        }
+        state.activeChannelId = channelId;
+        state.unreadCounts[channelId] = 0;
       }),
 
     prepareForReconnect: () =>
@@ -222,6 +242,13 @@ const useGameStore = create(
           }
         }
         state.removedChannelIds = removed;
+
+        // Reset active channel to null if it was removed; the null-check below
+        // then handles both this case and initial load with a single fallback.
+        if (removed.includes(state.activeChannelId)) {
+          state.activeChannelId = null;
+        }
+
         // Add/update channels from server
         for (const ch of view.channels) {
           if (state.channels[ch.id]) {
@@ -230,6 +257,7 @@ const useGameStore = create(
             state.channels[ch.id].members = ch.members;
             state.channels[ch.id].locked = ch.locked;
             state.channels[ch.id].expiresAt = ch.expiresAt;
+            state.channels[ch.id].label = ch.label ?? null;
           } else {
             // New channel
             state.channels[ch.id] = {
@@ -238,9 +266,19 @@ const useGameStore = create(
               members: ch.members,
               locked: ch.locked,
               expiresAt: ch.expiresAt,
+              label: ch.label ?? null,
               messages: [],
             };
           }
+        }
+
+        // Auto-select when no active channel (initial load, or active was removed above).
+        // Prefer SYSTEM, then GLOBAL, then the first available channel.
+        if (state.activeChannelId === null) {
+          const system = view.channels.find((c) => c.type === 'SYSTEM');
+          const global = view.channels.find((c) => c.type === 'GLOBAL');
+          const firstNonPrivate = view.channels.find((c) => c.type !== 'PRIVATE');
+          state.activeChannelId = system?.id ?? global?.id ?? firstNonPrivate?.id ?? view.channels[0]?.id ?? null;
         }
 
         // Vote slice
@@ -276,6 +314,7 @@ const useGameStore = create(
         state.status = view.status;
         state.systemEvents = view.systemEvents;
         state.pendingIntentTypes = view.myPendingIntentTypes;
+        state.myRestrictions = view.myRestrictions ?? [];
       }),
 
     // --- Reset ---

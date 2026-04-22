@@ -3,6 +3,7 @@ import type {
   IntentType,
   NightActionType,
   Phase,
+  RestrictionType,
   SessionStatus,
   SystemEventMetadata,
   SystemEventType,
@@ -55,6 +56,65 @@ export interface SystemEventState {
   metadata: SystemEventMetadata;
 }
 
+/**
+ * A communication restriction applied during Night Resolution and enforced
+ * until its `expiresAt` phase transitions out. See
+ * apps/server/src/domain/game/restrictions.ts for builders and the
+ * `evaluateOutboundMessage` / `clearExpiredRestrictions` helpers.
+ *
+ * Invariant: a restriction is "active" during every phase from `appliedAt`
+ * up to and including `expiresAt`. `clearExpiredRestrictions` removes it
+ * when the session transitions *out of* `expiresAt`.
+ */
+export type Restriction =
+  | {
+      type: RestrictionType.LOCKED;
+      channelId: string;
+      appliedAt: string;
+      expiresAt: Phase;
+      appliedByPlayerId: string;
+    }
+  | {
+      type: RestrictionType.SILENCED;
+      playerId: string;
+      appliedAt: string;
+      expiresAt: Phase;
+      appliedByPlayerId: string;
+    }
+  | {
+      type: RestrictionType.JAMMED;
+      playerId: string;
+      channelTypes: ChannelType[];
+      appliedAt: string;
+      expiresAt: Phase;
+      appliedByPlayerId: string;
+    }
+  | {
+      type: RestrictionType.MONITORED;
+      targetPlayerId: string;
+      observerPlayerId: string;
+      channelTypes: ChannelType[];
+      appliedAt: string;
+      expiresAt: Phase;
+      appliedByPlayerId: string;
+    }
+  | {
+      type: RestrictionType.ALTERED;
+      targetPlayerId: string;
+      channelTypes: ChannelType[];
+      mode: 'SCRAMBLE' | 'REPLACE';
+      // For REPLACE mode: the content that overrides the sender's message.
+      // For SCRAMBLE mode: the role's scramble function produces the output; this stays undefined.
+      payload?: string;
+      // When true, the restriction fires once and then sets `spent=true`.
+      // Troller's "first PM only" uses this.
+      oneShot: boolean;
+      spent: boolean;
+      appliedAt: string;
+      expiresAt: Phase;
+      appliedByPlayerId: string;
+    };
+
 export interface GameTimersState {
   currentPhaseEndsAt: string | null;
   currentPhaseDurationSeconds: number;
@@ -77,6 +137,13 @@ export interface GameState {
    * Optional for backward compatibility with pre-existing persisted sessions.
    */
   privateSystemEvents?: Record<string, SystemEventState[]>;
+  /**
+   * Active communication restrictions (see `Restriction` union above).
+   * Optional for backward compatibility with sessions persisted before the
+   * Communication Restriction Framework (#76) landed; readers must treat
+   * `undefined` as `[]` and writers should lazy-init before appending.
+   */
+  restrictions?: Restriction[];
   timers: GameTimersState;
   createdAt: string;
   updatedAt: string;

@@ -2,6 +2,7 @@ import {
   ChannelType,
   IntentType,
   LobbyStatus,
+  MessageErrorCode,
   NightActionType,
   Phase,
   SessionStatus,
@@ -25,6 +26,7 @@ import {
   type RuntimeEvent,
 } from '../domain/game/runtime-domain.js';
 import { validateRoleAction } from '../domain/game/role-actions.js';
+import { evaluateOutboundMessage } from '../domain/game/restrictions.js';
 import { buildSessionFromLobby } from '../domain/game/session-domain.js';
 import type {
   GameState,
@@ -194,7 +196,9 @@ function validateNightActionTarget(
     }
     case NightActionType.CHANNEL_LOCK: {
       // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
-      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate).
+      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate.
+      // Paired sites that must be removed together: ws-message-handler.ts ~L840 (resolvedTargetId)
+      // and runtime-domain.ts ~L438 (CHANNEL_LOCK resolver).
       if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
       const channel = session.channels[targetId];
       if (!channel) return { valid: false, reason: 'Channel does not exist.' };
@@ -696,13 +700,6 @@ export async function handleSubmitIntent(
 
     const session = requireSession(await ctx.repo.getSession());
 
-    // Reconcile first to ensure we're at the right phase
-    const runtimeEvents = await reconcileAndPersist(ctx, lobby, session);
-    if (runtimeEvents.length > 0) {
-      ctx.broadcastLobbyState(lobby);
-      ctx.broadcastSessionState(session);
-    }
-
     if (!session.players[actorId]) {
       return fail('PLAYER_NOT_FOUND', 'Player is not part of the active session.');
     }
@@ -725,19 +722,27 @@ export async function handleSubmitIntent(
       if (!channel) {
         return fail('CHANNEL_NOT_FOUND', 'Channel does not exist.');
       }
+      // SYSTEM channels are read-only: only the server publishes to them.
+      // Reject player sends early, before membership or lock checks.
+      if (channel.type === ChannelType.SYSTEM) {
+        return fail(
+          MessageErrorCode.SYSTEM_CHANNEL_READONLY,
+          'The System channel is read-only.',
+        );
+      }
       // Defense-in-depth: HACKER channels require sender to be a living Hacker,
       // regardless of channel membership state.
-      if (channel.type === 'HACKER') {
+      if (channel.type === ChannelType.HACKER) {
         const sender = session.players[actorId];
         if (!sender || sender.team !== Team.HACKERS || !sender.alive) {
-          return fail('NOT_IN_CHANNEL', 'You are not authorized for this channel.');
+          return fail(
+            MessageErrorCode.NOT_CHANNEL_MEMBER,
+            'You are not authorized for this channel.',
+          );
         }
       }
       if (!channel.members.includes(actorId)) {
-        return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
-      }
-      if (channel.locked) {
-        return fail('CHANNEL_LOCKED', 'This channel is locked.');
+        return fail(MessageErrorCode.NOT_CHANNEL_MEMBER, 'You are not a member of this channel.');
       }
 
       const trimmed = messagePayload.content.trim();
@@ -746,6 +751,15 @@ export async function handleSubmitIntent(
       }
       if (trimmed.length > 500) {
         return fail('MESSAGE_TOO_LONG', 'Message exceeds 500 characters.');
+      }
+
+      // Communication Restriction Framework (#76): single source of truth for
+      // PM-phase, LOCKED, SILENCED, JAMMED (REJECT) and MONITORED / ALTERED
+      // (TRANSFORM). The handler's upstream gates (SYSTEM, HACKER, membership)
+      // run first to keep rejection messages specific to the violation.
+      const decision = evaluateOutboundMessage(session, actorId, channel, trimmed, session.phase);
+      if (decision.kind === 'REJECT') {
+        return fail(decision.code, decision.message);
       }
 
       const now = new Date().toISOString();
@@ -759,20 +773,48 @@ export async function handleSubmitIntent(
       };
 
       // Defense-in-depth: for HACKER channels, filter recipients by team+alive
-      // even if channel.members is somehow wrong.
-      let recipients = channel.members;
-      if (channel.type === 'HACKER') {
+      // even if channel.members is somehow wrong. Copy the array upfront so the
+      // transport layer can't mutate `channel.members` through the alias.
+      let recipients = [...channel.members];
+      if (channel.type === ChannelType.HACKER) {
         recipients = recipients.filter((id) => {
           const p = session.players[id];
           return Boolean(p?.alive && p.team === Team.HACKERS);
         });
       }
 
-      ctx.broadcastChannelMessage(
-        messagePayload.channelId,
-        message,
-        recipients,
-      );
+      if (decision.kind === 'TRANSFORM') {
+        // Sender sees their own original message (Troller spec: "sender does not see the
+        // alteration"). Everyone else on the channel — plus any MONITORED observers — gets
+        // the transformed copy. Observers may not be channel members, so they are unioned in.
+        const transformedRecipients = Array.from(
+          new Set(
+            [...recipients, ...decision.extraRecipients].filter((id) => id !== actorId),
+          ),
+        );
+        ctx.broadcastChannelMessage(messagePayload.channelId, message, [actorId]);
+        if (transformedRecipients.length > 0) {
+          ctx.broadcastChannelMessage(
+            messagePayload.channelId,
+            { ...message, content: decision.content },
+            transformedRecipients,
+          );
+        }
+        // Commit oneShot ALTERED side effect only after the broadcast has fired,
+        // so a future rejection path added downstream can't burn an unused shot.
+        decision.consume();
+        // Persist so the `spent` flag survives DO reload. Non-oneShot
+        // ALTERED and pure-MONITORED TRANSFORMs don't mutate anything, so
+        // this is an occasional no-op write — cheap insurance against
+        // forgetting to save when a future role wires up oneShot ALTERED.
+        await ctx.repo.saveSession(session);
+      } else {
+        ctx.broadcastChannelMessage(
+          messagePayload.channelId,
+          message,
+          recipients,
+        );
+      }
 
       return ok({ messageId: message.id });
     }
@@ -840,7 +882,8 @@ export async function handleSubmitIntent(
 
       // Per-action-type target validation.
       // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
-      // compat with in-flight payloads. TODO: remove fallback once clients migrate.
+      // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
+      // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
       const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
         ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
         : nightPayload.targetPlayerId;
@@ -867,9 +910,18 @@ export async function handleSubmitIntent(
       );
     }
 
+    // After appending the intent, reconcile to handle any phase transitions.
+    // This ensures pending intents are resolved with the new submission included.
     session.updatedAt = now;
-    await ctx.repo.saveSession(session);
-    ctx.broadcastSessionState(session);
+    const runtimeEvents = await reconcileAndPersist(ctx, lobby, session);
+    if (runtimeEvents.length > 0) {
+      ctx.broadcastLobbyState(lobby);
+      ctx.broadcastSessionState(session);
+    } else {
+      // No phase transition occurred; just broadcast the session with the new intent
+      await ctx.repo.saveSession(session);
+      ctx.broadcastSessionState(session);
+    }
 
     return ok({
       acceptedIntentId: appendResult.intent.id,

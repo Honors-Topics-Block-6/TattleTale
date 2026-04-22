@@ -91,7 +91,7 @@ describe('full game cycle with hacker night kill', () => {
   }
 
   it('runs DAY_OPEN → … → NIGHT_ACTIONS → kill applied → HACKERS_WIN', () => {
-    const lobby = buildLobby(5);
+    const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
     // Deterministic shuffle: () => 0 keeps original order, so p1 & p2 are Hackers.
     initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0);
@@ -104,9 +104,14 @@ describe('full game cycle with hacker night kill', () => {
       .map((p) => p.playerId);
 
     expect(hackerIds).toHaveLength(2);
-    expect(friendIds).toHaveLength(3);
+    expect(friendIds).toHaveLength(5);
     expect(session.phase).toBe(Phase.DAY_OPEN);
     expect(session.status).toBe(SessionStatus.ACTIVE);
+
+    // Pre-eliminate 3 friends so that after the night kill (2H vs 2F) hackers win.
+    session.players[friendIds[2]].alive = false;
+    session.players[friendIds[3]].alive = false;
+    session.players[friendIds[4]].alive = false;
 
     const durations = calculatePhaseDurations(lobby.settings);
     let now = '2026-03-17T00:00:00.000Z';
@@ -171,7 +176,7 @@ describe('full game cycle with hacker night kill', () => {
   });
 
   it('appends NO_KILL_TONIGHT when hackers tie, game continues', () => {
-    const lobby = buildLobby(5);
+    const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-2', '2026-03-17T00:00:00.000Z');
     initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0);
 
@@ -228,7 +233,7 @@ describe('full game cycle with hacker night kill', () => {
   });
 
   it('day vote elimination feeds into night cycle', () => {
-    const lobby = buildLobby(5);
+    const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-3', '2026-03-17T00:00:00.000Z');
     initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0);
 

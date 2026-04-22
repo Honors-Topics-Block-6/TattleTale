@@ -3,6 +3,7 @@ import type {
   IntentType,
   LobbyStatus,
   Phase,
+  RestrictionType,
   SessionStatus,
   SystemEventType,
   Team,
@@ -54,6 +55,17 @@ export interface ChannelView {
   members: string[];
   locked: boolean;
   expiresAt: Phase | null;
+  /**
+   * Pre-computed display label for this channel.
+   *
+   * For PRIVATE channels the server sets this to the OTHER member's display
+   * name (from the viewer's perspective), so clients do not need to
+   * cross-reference `members` against the player list.
+   *
+   * For all other channel types this is `null`; clients fall back to their
+   * own labelling logic (e.g. "Global", role name, etc.).
+   */
+  label: string | null;
 }
 
 /**
@@ -117,6 +129,24 @@ export interface SocketReadyPayload {
   sessionId: string | null;
 }
 
+/**
+ * Restriction information surfaced to a specific viewer. This is a *filtered*
+ * subset of the server's full `Restriction` union — covert restrictions
+ * (e.g. MONITORED, whose target must not know they are being watched) are
+ * omitted from the viewer's bucket before projection, and attacker identity
+ * (`appliedByPlayerId`) is never exposed regardless of type.
+ *
+ * Channel-type scope (`channelTypes`) is present for types whose behavior
+ * depends on the active channel's type (JAMMED, ALTERED) so the client can
+ * render a banner scoped to the right channels. LOCKED carries the affected
+ * `channelId`. Other types carry only the restriction identity and lifecycle.
+ */
+export type ViewerRestriction =
+  | { type: RestrictionType.LOCKED; channelId: string; expiresAt: Phase }
+  | { type: RestrictionType.SILENCED; expiresAt: Phase }
+  | { type: RestrictionType.JAMMED; channelTypes: ChannelType[]; expiresAt: Phase }
+  | { type: RestrictionType.ALTERED; channelTypes: ChannelType[]; expiresAt: Phase };
+
 export interface HackerNightView {
   /** Tally of HACKER_KILL targets for the current cycle. Empty object = no submissions yet. */
   tally: Record<string, number>;
@@ -147,4 +177,10 @@ export interface PlayerSessionView {
    * branches in the contract carry hacker-night meaning.
    */
   hackerNightView: HackerNightView | null;
+  /**
+   * Active communication restrictions affecting this viewer. Covert
+   * restrictions (MONITORED) are always omitted. Populated by the
+   * projection layer from `session.restrictions`.
+   */
+  myRestrictions: ViewerRestriction[];
 }

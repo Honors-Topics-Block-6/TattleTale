@@ -274,11 +274,11 @@ describe('runtime-domain', () => {
   });
 
   it('initializeSessionRuntime: hacker channel populated, capped event log, GAME_STARTED carries typed metadata', () => {
-    const lobby = buildLobby(5);
+    const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
     initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
 
-    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=5).
+    // Hacker channel exists, has type HACKER, populated with assigned Hackers (count 2 for n=7).
     expect(session.channels.hacker).toBeDefined();
     expect(session.channels.hacker.type).toBe('HACKER');
     const hackerIds = Object.values(session.players)
@@ -336,7 +336,7 @@ describe('runtime-domain', () => {
 
   describe('resolveHackerKillTarget', () => {
     function setupNightSession() {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
@@ -489,7 +489,7 @@ describe('runtime-domain', () => {
 
   describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
     function toNightActions(now: string) {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', now);
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
@@ -556,7 +556,10 @@ describe('runtime-domain', () => {
       const { lobby, session } = toNightActions('2026-03-17T00:00:00.000Z');
       const hackers = Object.values(session.players).filter((p) => p.team === Team.HACKERS).map((p) => p.playerId);
       const friends = Object.values(session.players).filter((p) => p.team === Team.FRIENDS).map((p) => p.playerId);
-      session.players[friends[0]].alive = false;
+      // Pre-eliminate enough friends so the night kill triggers HACKERS_WIN (2H vs 1F → kill → 2H vs 0F).
+      for (const f of friends.filter((id) => id !== friends[1])) {
+        session.players[f].alive = false;
+      }
 
       for (const h of hackers) {
         appendIntent(session, {
@@ -662,7 +665,7 @@ describe('runtime-domain', () => {
 
   describe('resolveNightActions (priority resolver)', () => {
     function buildNightSession() {
-      const lobby = buildLobby(5);
+      const lobby = buildLobby(7);
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
@@ -787,7 +790,7 @@ describe('runtime-domain', () => {
       expect(ev).toBeDefined();
     });
 
-    it('Tier 5 CHANNEL_LOCK sets locked=true on a non-system channel', () => {
+    it('Tier 5 CHANNEL_LOCK sets locked=true and appends a LOCKED restriction expiring at DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1] = friendIds(session);
 
@@ -802,6 +805,61 @@ describe('runtime-domain', () => {
       expect(session.channels.global.locked).toBe(true);
       const ev = session.systemEvents.find((e) => e.type === SystemEventType.CHANNEL_LOCKED);
       expect(ev?.metadata).toEqual({ type: 'CHANNEL_LOCKED', channelId: 'global' });
+
+      const lockRestriction = (session.restrictions ?? []).find(
+        (r) => r.type === 'LOCKED' && r.channelId === 'global',
+      );
+      expect(lockRestriction).toBeDefined();
+      expect(lockRestriction?.expiresAt).toBe(Phase.DAY_RESOLVE);
+    });
+
+    it('CHANNEL_LOCK expires at end of Day Cycle — channel reopens when transitioning out of DAY_RESOLVE', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      // Drive the session through phases until we transition out of DAY_RESOLVE.
+      // Each reconcile only advances one phase; we pump until the lock clears.
+      let now = Date.parse('2026-03-17T00:00:31.000Z');
+      const startingCycle = session.cycle;
+      for (let i = 0; i < 20; i++) {
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        // Once the restriction has cleared (we transitioned out of DAY_RESOLVE into NIGHT_ACTIONS
+        // of the next cycle), assert and stop.
+        if (!(session.restrictions ?? []).some((r) => r.type === 'LOCKED')) break;
+        now += 10 * 60 * 1000;
+      }
+
+      expect(session.channels.global.locked).toBe(false);
+      expect((session.restrictions ?? []).some((r) => r.type === 'LOCKED' && r.channelId === 'global')).toBe(false);
+      // The session advanced at least one full cycle.
+      expect(session.cycle).toBeGreaterThan(startingCycle);
+    });
+
+    it('expired TEMP channels are deleted when transitioning out of DAY_RESOLVE', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CREATE_TEMP_CHAT, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      let now = Date.parse('2026-03-17T00:00:31.000Z');
+      for (let i = 0; i < 20; i++) {
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        const stillHasTemp = Object.values(session.channels).some((c) => c.type === ChannelType.TEMP);
+        if (!stillHasTemp) break;
+        now += 10 * 60 * 1000;
+      }
+
+      expect(Object.values(session.channels).some((c) => c.type === ChannelType.TEMP)).toBe(false);
     });
 
     it('priority order: PROTECT wins even when submitted after the kill intents', () => {

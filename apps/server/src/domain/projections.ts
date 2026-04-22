@@ -1,7 +1,60 @@
-import { IntentType, NightActionType, Phase, Team, type LobbyView, type PlayerSessionView, type HackerNightView } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ViewerRestriction } from '@tattletale/shared';
 
-import type { GameState, NightActionIntentPayload, VoteIntentPayload } from './game/types.js';
+import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
+
+/**
+ * Filter the session's restriction list to just what the viewing player
+ * should know about, and strip fields they must not see.
+ *
+ * Visibility rules:
+ *   - LOCKED    → visible to all channel members (channel.locked already
+ *                 mirrors this; included here so clients can render a
+ *                 lifecycle hint like "reopens after DAY_RESOLVE").
+ *   - SILENCED  → visible only to the target.
+ *   - JAMMED    → visible only to the target.
+ *   - ALTERED   → visible only to the target. Covert to everyone else.
+ *   - MONITORED → NEVER projected. Covert by design — the target must not
+ *                 know they are being watched, and the observer's view is
+ *                 handled as message forwarding, not as a restriction flag.
+ *
+ * `appliedByPlayerId` is never exposed regardless of type (leaks attacker).
+ */
+function projectRestrictions(
+  restrictions: Restriction[],
+  viewerId: string,
+  viewerChannelIds: Set<string>,
+): ViewerRestriction[] {
+  const out: ViewerRestriction[] = [];
+  for (const r of restrictions) {
+    switch (r.type) {
+      case RestrictionType.LOCKED:
+        if (viewerChannelIds.has(r.channelId)) {
+          out.push({ type: RestrictionType.LOCKED, channelId: r.channelId, expiresAt: r.expiresAt });
+        }
+        break;
+      case RestrictionType.SILENCED:
+        if (r.playerId === viewerId) {
+          out.push({ type: RestrictionType.SILENCED, expiresAt: r.expiresAt });
+        }
+        break;
+      case RestrictionType.JAMMED:
+        if (r.playerId === viewerId) {
+          out.push({ type: RestrictionType.JAMMED, channelTypes: [...r.channelTypes], expiresAt: r.expiresAt });
+        }
+        break;
+      case RestrictionType.ALTERED:
+        if (r.targetPlayerId === viewerId) {
+          out.push({ type: RestrictionType.ALTERED, channelTypes: [...r.channelTypes], expiresAt: r.expiresAt });
+        }
+        break;
+      case RestrictionType.MONITORED:
+        // Covert — never projected.
+        break;
+    }
+  }
+  return out;
+}
 
 export function toLobbyView(lobby: LobbyState): LobbyView {
   return {
@@ -101,7 +154,14 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     }),
     channels: Object.values(session.channels)
       .filter((ch) => ch.members.includes(playerId))
-      .map((ch) => ({ id: ch.id, type: ch.type, members: [...ch.members], locked: ch.locked, expiresAt: ch.expiresAt })),
+      .map((ch) => {
+        let label: string | null = null;
+        if (ch.type === ChannelType.PRIVATE) {
+          const otherId = ch.members.find((id) => id !== playerId) ?? null;
+          label = (otherId !== null ? (session.players[otherId]?.displayName ?? null) : null);
+        }
+        return { id: ch.id, type: ch.type, members: [...ch.members], locked: ch.locked, expiresAt: ch.expiresAt, label };
+      }),
     myPendingIntentTypes: session.pendingIntents
       .filter((intent) => intent.playerId === playerId)
       .map((intent) => intent.type),
@@ -121,6 +181,15 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myTeam: player?.team ?? ('FRIENDS' as any),
     myTeammates,
     hackerNightView,
+    myRestrictions: projectRestrictions(
+      session.restrictions ?? [],
+      playerId,
+      new Set(
+        Object.values(session.channels)
+          .filter((ch) => ch.members.includes(playerId))
+          .map((ch) => ch.id),
+      ),
+    ),
   };
 }
 

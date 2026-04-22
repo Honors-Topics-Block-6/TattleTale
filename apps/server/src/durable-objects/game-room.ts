@@ -149,9 +149,14 @@ export class GameRoomDO implements DurableObject {
 
     const { type, seq, payload } = parsed;
 
-    // Authentication gate: only joinLobby and rejoinLobby allowed before auth
+    // Authentication gate: only joinLobby, rejoinLobby, and ping allowed before auth
     const attachment = (ws as any).deserializeAttachment() as WsAttachment;
-    if (!attachment.playerId && type !== 'joinLobby' && type !== 'rejoinLobby') {
+    if (
+      !attachment.playerId &&
+      type !== 'joinLobby' &&
+      type !== 'rejoinLobby' &&
+      type !== 'ping'
+    ) {
       this.sendMessage(ws, {
         type: 'error',
         ref: seq,
@@ -164,6 +169,9 @@ export class GameRoomDO implements DurableObject {
     let result: HandlerResult;
 
     switch (type) {
+      case 'ping':
+        result = { ok: true, data: {} };
+        break;
       case 'joinLobby':
         result = await handleJoinLobby(ctx, ws, payload as any);
         break;

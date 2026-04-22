@@ -29,11 +29,20 @@ export default function ChatPanel({ channelId }) {
   const channel = useGameStore((s) => s.channels[channelId]);
   const selfAlive = useGameStore((s) => s.selfAlive);
   const selfId = useGameStore((s) => s.selfId);
+  const phase = useGameStore((s) => s.phase);
+  const myRestrictions = useGameStore((s) => s.myRestrictions);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef(null);
 
   const messages = channel?.messages || [];
   const isLocked = channel?.locked ?? false;
+  const isPrivatePhaseRestricted =
+    channel?.type === 'PRIVATE' && phase !== 'DAY_OPEN';
+  const isSystemChannel = channel?.type === 'SYSTEM';
+  const isSilenced = myRestrictions.some((r) => r.type === 'SILENCED');
+  const isJammed = myRestrictions.some(
+    (r) => r.type === 'JAMMED' && r.channelTypes?.includes(channel?.type),
+  );
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -42,7 +51,12 @@ export default function ChatPanel({ channelId }) {
 
   const handleSend = async () => {
     const content = inputValue.trim();
-    if (!content || isLocked || !selfAlive) return;
+    // All other gates (selfAlive, isLocked, isPrivatePhaseRestricted,
+    // isSystemChannel, isSilenced, isJammed) are enforced by conditional
+    // rendering of the input block below — if any are true the input/button
+    // don't exist, so handleSend is unreachable. Re-checking them here would
+    // create a silent second layer that masks state/render desync bugs.
+    if (!content) return;
 
     try {
       await socket.send('submitIntent', {
@@ -133,7 +147,21 @@ export default function ChatPanel({ channelId }) {
             borderTop: '1px solid #aca899',
           }}
         >
-          {isLocked ? (
+          {isSystemChannel ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              System channel is read-only
+            </div>
+          ) : isLocked ? (
             <div
               style={{
                 flex: 1,
@@ -146,6 +174,48 @@ export default function ChatPanel({ channelId }) {
               }}
             >
               Channel locked
+            </div>
+          ) : isPrivatePhaseRestricted ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              Private messages are disabled during this phase
+            </div>
+          ) : isSilenced ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              You have been silenced
+            </div>
+          ) : isJammed ? (
+            <div
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                color: '#999',
+                fontStyle: 'italic',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              Your signal is jammed on this channel
             </div>
           ) : (
             <>
