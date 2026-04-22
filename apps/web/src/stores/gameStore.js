@@ -218,6 +218,7 @@ const useGameStore = create(
           newPlayers[p.playerId] = {
             playerId: p.playerId,
             displayName: p.displayName,
+            avatar: p.avatar ?? null,
             alive: p.alive,
             connected: p.connected,
             role: p.role,

@@ -20,6 +20,7 @@ export interface LobbySettingsView {
 export interface LobbyPlayerView {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   isHost: boolean;
   ready: boolean;
   connected: boolean;
@@ -40,6 +41,7 @@ export interface LobbyView {
 export interface SessionPlayerView {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   alive: boolean;
   connected: boolean;
 }

@@ -19,7 +19,9 @@ export function buildSessionFromLobby(
     player.playerId,
     {
       playerId: player.playerId,
+      accountId: player.accountId,
       displayName: player.displayName,
+      avatar: player.avatar ?? null,
       alive: player.alive,
       connected: player.connected,
       roleId: null,

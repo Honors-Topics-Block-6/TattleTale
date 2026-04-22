@@ -61,6 +61,7 @@ export interface HandlerContext {
       id: string;
       senderId: string;
       senderName: string;
+      senderAvatar?: string | null;
       content: string;
       timestamp: string;
       cycle: number;
@@ -315,7 +316,9 @@ export async function handleJoinLobby(
 
     lobby.players.push({
       playerId,
+      accountId: payload.accountId,
       displayName,
+      avatar: payload.avatar ?? null,
       isHost: false,
       ready: false,
       connected: true,
@@ -767,6 +770,7 @@ export async function handleSubmitIntent(
         id: generateId(),
         senderId: actorId,
         senderName: session.players[actorId].displayName,
+        senderAvatar: session.players[actorId].avatar ?? null,
         content: trimmed,
         timestamp: now,
         cycle: session.cycle,

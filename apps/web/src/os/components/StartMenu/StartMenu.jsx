@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useMenuStore from '../../store/menuStore';
 import StartMenuItem from './StartMenuItem';
 import { getStartMenuApps } from '../../config/apps.config';
 import useInstallStore from '../../store/installStore';
+import { fetchAccount } from '../../../lib/account-api';
 
 export default function StartMenu() {
+  const [account, setAccount] = useState(null);
   const startMenuOpen = useMenuStore((state) => state.startMenuOpen);
   const closeStartMenu = useMenuStore((state) => state.closeStartMenu);
   const menuRef = useRef(null);
@@ -20,14 +22,19 @@ export default function StartMenu() {
     });
   }, [programs, installedAppIds]);
 
-  // User avatar placeholder
   const userAvatar = 'data:image/svg+xml,' + encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
       <rect width="48" height="48" fill="#4b7fc2"/>
-      <circle cx="24" cy="18" r="10" fill="#fff"/>
-      <ellipse cx="24" cy="42" rx="16" ry="12" fill="#fff"/>
+      <text x="24" y="31" text-anchor="middle" font-size="24">${account?.avatar || '🙂'}</text>
     </svg>
   `);
+
+  useEffect(() => {
+    if (!startMenuOpen) return;
+    fetchAccount()
+      .then((data) => setAccount(data.user))
+      .catch(() => setAccount(null));
+  }, [startMenuOpen]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -61,7 +68,7 @@ export default function StartMenu() {
     <div className="xp-startmenu" ref={menuRef}>
       <div className="xp-startmenu-header">
         <img src={userAvatar} alt="User" />
-        <span>User</span>
+        <span>{account?.displayName || 'User'} ({account?.totalPoints ?? 0} pts)</span>
       </div>
 
       <div className="xp-startmenu-content">

@@ -52,3 +52,23 @@ export const installedApps = sqliteTable('installed_apps', {
   appId: text('app_id').notNull(),
   installedAt: text('installed_at').notNull(),
 });
+
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  displayName: text('display_name').notNull(),
+  avatar: text('avatar').notNull().default('🙂'),
+  totalPoints: integer('total_points').notNull().default(0),
+  gamesPlayed: integer('games_played').notNull().default(0),
+  wins: integer('wins').notNull().default(0),
+  losses: integer('losses').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const userAvatarUnlocks = sqliteTable('user_avatar_unlocks', {
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  avatarId: text('avatar_id').notNull(),
+  unlockedAt: text('unlocked_at').notNull(),
+});

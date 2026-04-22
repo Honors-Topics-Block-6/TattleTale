@@ -77,6 +77,8 @@ export class GameRoomDO implements DurableObject {
     const body = (await request.json()) as {
       lobbyCode: string;
       displayName: string;
+      accountId?: string;
+      avatar?: string | null;
       settings?: Partial<typeof DEFAULT_LOBBY_SETTINGS>;
     };
 
@@ -94,7 +96,9 @@ export class GameRoomDO implements DurableObject {
       players: [
         {
           playerId,
+          accountId: body.accountId,
           displayName,
+          avatar: body.avatar ?? null,
           isHost: true,
           ready: false,
           connected: true,
@@ -404,6 +408,7 @@ export class GameRoomDO implements DurableObject {
       id: string;
       senderId: string;
       senderName: string;
+      senderAvatar?: string | null;
       content: string;
       timestamp: string;
       cycle: number;

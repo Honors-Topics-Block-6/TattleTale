@@ -7,6 +7,7 @@ export interface ChannelMessagePayload {
     id: string;
     senderId: string;
     senderName: string;
+    senderAvatar?: string | null;
     content: string;
     timestamp: string;
     cycle: number;

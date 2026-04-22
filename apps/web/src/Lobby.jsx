@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useGameStore from './stores/gameStore';
 import { useSocket } from './lib/SocketContext';
+import { getDeviceId } from './os/utils/deviceId';
+import { fetchAccount, initAccount } from './lib/account-api';
+import { AvatarShopComponent } from './apps/AvatarShop/index';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
 const API_BASE = WS_URL.replace(/^ws/, 'http');
@@ -38,7 +41,7 @@ export default function Lobby() {
   const lobbyView = useGameStore((s) => s.lobbyView);
   const selfId = useGameStore((s) => s.selfId);
 
-  // 'title' | 'create' | 'join' | 'room' | 'error'
+  // 'title' | 'shop' | 'create' | 'join' | 'room' | 'error'
   const [screen, setScreen] = useState('title');
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -46,6 +49,29 @@ export default function Lobby() {
   // Inputs
   const [displayName, setDisplayName] = useState(randomDisplayName());
   const [joinCode, setJoinCode] = useState('');
+  const [account, setAccount] = useState(null);
+  const accountId = getDeviceId();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAccount()
+      .then((data) => {
+        if (cancelled) return;
+        setAccount(data.user);
+        if (data.user?.displayName) setDisplayName(data.user.displayName);
+      })
+      .catch(async () => {
+        try {
+          const initialized = await initAccount(displayName);
+          if (!cancelled) setAccount(initialized.user);
+        } catch {
+          // Best-effort account bootstrapping.
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goTitle = () => {
     socket.clearCredentials();
@@ -76,12 +102,16 @@ export default function Lobby() {
     setErrorMsg('');
 
     try {
+      const initialized = await initAccount(name);
+      setAccount(initialized.user);
       // 1. Create the lobby over HTTP. Creator is auto-added as host.
       const resp = await fetch(`${API_BASE}/api/lobby/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName: name,
+          accountId,
+          avatar: initialized.user?.avatar ?? null,
           settings: { minPlayers: 1 },
         }),
       });
@@ -138,12 +168,18 @@ export default function Lobby() {
 
     try {
       const wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+      const initialized = await initAccount(name);
+      setAccount(initialized.user);
 
       socket.clearCredentials();
       socket.close();
       await waitForConnected(socket, wsUrl);
 
-      const joinResp = await socket.send('joinLobby', { displayName: name });
+      const joinResp = await socket.send('joinLobby', {
+        displayName: name,
+        accountId,
+        avatar: initialized.user?.avatar ?? null,
+      });
       const ack = joinResp?.payload?.data;
       if (!ack?.playerId || !ack?.reconnectToken) {
         throw new Error('joinLobby did not return credentials');
@@ -182,7 +218,13 @@ export default function Lobby() {
         <TitleScreen
           onCreate={() => setScreen('create')}
           onJoin={() => setScreen('join')}
+          onShop={() => setScreen('shop')}
+          account={account}
         />
+      )}
+
+      {screen === 'shop' && (
+        <ShopScreen onBack={goTitle} />
       )}
 
       {screen === 'create' && (
@@ -389,11 +431,36 @@ function ErrorBanner({ message }) {
   );
 }
 
-function TitleScreen({ onCreate, onJoin }) {
+function TitleScreen({ onCreate, onJoin, onShop, account }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+      <div style={{ color: '#fff', fontSize: 13 }}>
+        {account?.avatar || '🙂'} {account?.displayName || 'Player'} - {account?.totalPoints ?? 0} pts
+      </div>
       <PrimaryButton onClick={onCreate}>Create Game</PrimaryButton>
       <PrimaryButton onClick={onJoin}>Join Game</PrimaryButton>
+      <SecondaryButton onClick={onShop}>Avatar Shop</SecondaryButton>
+    </div>
+  );
+}
+
+function ShopScreen({ onBack }) {
+  return (
+    <div
+      style={{
+        width: 560,
+        maxWidth: '95vw',
+        height: 480,
+        background: 'rgba(255,255,255,0.92)',
+        borderRadius: 6,
+        padding: 12,
+        boxSizing: 'border-box',
+      }}
+    >
+      <AvatarShopComponent />
+      <div style={{ textAlign: 'center', marginTop: 8 }}>
+        <SecondaryButton onClick={onBack}>Back</SecondaryButton>
+      </div>
     </div>
   );
 }
@@ -557,6 +624,7 @@ function RoomScreen({ lobbyView, selfId, onStart, onLeave, busy, errorMsg }) {
             >
               <span>
                 {p.isHost && <span title="Host">👑 </span>}
+                <span style={{ marginRight: 4 }}>{p.avatar || '🙂'}</span>
                 {p.displayName}
                 {p.playerId === selfId && (
                   <span style={{ color: 'rgba(255,255,255,0.45)' }}> (you)</span>

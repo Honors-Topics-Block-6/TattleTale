@@ -50,6 +50,7 @@ export default function PlayerList() {
 
         return (
           <div key={id} style={nameStyle}>
+            <span style={{ marginRight: 6 }}>{player.avatar || '🙂'}</span>
             {player.displayName}
             {isSelf && ' (you)'}
             {isDead && ' [dead]'}

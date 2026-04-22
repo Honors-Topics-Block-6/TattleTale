@@ -64,6 +64,7 @@ export function toLobbyView(lobby: LobbyState): LobbyView {
     players: lobby.players.map((player) => ({
       playerId: player.playerId,
       displayName: player.displayName,
+      avatar: player.avatar ?? null,
       isHost: player.isHost,
       ready: player.ready,
       connected: player.connected,
@@ -141,6 +142,7 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
       const base = {
         playerId: p.playerId,
         displayName: p.displayName,
+        avatar: p.avatar ?? null,
         alive: p.alive,
         connected: p.connected,
       };

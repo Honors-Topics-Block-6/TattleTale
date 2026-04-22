@@ -12,7 +12,9 @@ import type {
 
 export interface PlayerState {
   playerId: string;
+  accountId?: string;
   displayName: string;
+  avatar?: string | null;
   alive: boolean;
   connected: boolean;
   roleId: string | null;

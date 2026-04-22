@@ -120,6 +120,7 @@ export default function ChatPanel({ channelId }) {
                     color: msg.senderId === selfId ? '#0054e3' : '#333',
                   }}
                 >
+                  {msg.senderAvatar || '🙂'}{' '}
                   {msg.senderName}
                 </span>
                 <span style={{ color: '#999', marginLeft: 6, fontSize: 10 }}>
