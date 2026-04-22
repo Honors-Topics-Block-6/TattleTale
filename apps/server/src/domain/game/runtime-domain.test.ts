@@ -788,7 +788,7 @@ describe('runtime-domain', () => {
       expect(ev).toBeDefined();
     });
 
-    it('Tier 5 CHANNEL_LOCK sets locked=true on a non-system channel', () => {
+    it('Tier 5 CHANNEL_LOCK sets locked=true and appends a LOCKED restriction expiring at DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1] = friendIds(session);
 
@@ -803,6 +803,61 @@ describe('runtime-domain', () => {
       expect(session.channels.global.locked).toBe(true);
       const ev = session.systemEvents.find((e) => e.type === SystemEventType.CHANNEL_LOCKED);
       expect(ev?.metadata).toEqual({ type: 'CHANNEL_LOCKED', channelId: 'global' });
+
+      const lockRestriction = (session.restrictions ?? []).find(
+        (r) => r.type === 'LOCKED' && r.channelId === 'global',
+      );
+      expect(lockRestriction).toBeDefined();
+      expect(lockRestriction?.expiresAt).toBe(Phase.DAY_RESOLVE);
+    });
+
+    it('CHANNEL_LOCK expires at end of Day Cycle — channel reopens when transitioning out of DAY_RESOLVE', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      // Drive the session through phases until we transition out of DAY_RESOLVE.
+      // Each reconcile only advances one phase; we pump until the lock clears.
+      let now = Date.parse('2026-03-17T00:00:31.000Z');
+      const startingCycle = session.cycle;
+      for (let i = 0; i < 20; i++) {
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        // Once the restriction has cleared (we transitioned out of DAY_RESOLVE into NIGHT_ACTIONS
+        // of the next cycle), assert and stop.
+        if (!(session.restrictions ?? []).some((r) => r.type === 'LOCKED')) break;
+        now += 10 * 60 * 1000;
+      }
+
+      expect(session.channels.global.locked).toBe(false);
+      expect((session.restrictions ?? []).some((r) => r.type === 'LOCKED' && r.channelId === 'global')).toBe(false);
+      // The session advanced at least one full cycle.
+      expect(session.cycle).toBeGreaterThan(startingCycle);
+    });
+
+    it('expired TEMP channels are deleted when transitioning out of DAY_RESOLVE', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CREATE_TEMP_CHAT, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      let now = Date.parse('2026-03-17T00:00:31.000Z');
+      for (let i = 0; i < 20; i++) {
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        const stillHasTemp = Object.values(session.channels).some((c) => c.type === ChannelType.TEMP);
+        if (!stillHasTemp) break;
+        now += 10 * 60 * 1000;
+      }
+
+      expect(Object.values(session.channels).some((c) => c.type === ChannelType.TEMP)).toBe(false);
     });
 
     it('priority order: PROTECT wins even when submitted after the kill intents', () => {

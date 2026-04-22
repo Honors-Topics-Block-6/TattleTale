@@ -46,6 +46,11 @@ const initialState = {
   eliminationCause: null,
   eliminationCycle: null,
 
+  // Active communication restrictions affecting the viewer (#76).
+  // Shape: Array<{ type, expiresAt, channelId?, channelTypes? }> — mirrors
+  // ViewerRestriction from packages/shared/src/contracts/views.ts.
+  myRestrictions: [],
+
   // Lobby slice (pre-game waiting room)
   lobbyView: null,
 };
@@ -309,6 +314,7 @@ const useGameStore = create(
         state.status = view.status;
         state.systemEvents = view.systemEvents;
         state.pendingIntentTypes = view.myPendingIntentTypes;
+        state.myRestrictions = view.myRestrictions ?? [];
       }),
 
     // --- Reset ---

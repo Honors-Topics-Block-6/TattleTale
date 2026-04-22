@@ -25,6 +25,7 @@ import {
   type RuntimeEvent,
 } from '../domain/game/runtime-domain.js';
 import { validateRoleAction } from '../domain/game/role-actions.js';
+import { evaluateOutboundMessage } from '../domain/game/restrictions.js';
 import { buildSessionFromLobby } from '../domain/game/session-domain.js';
 import type {
   GameState,
@@ -194,7 +195,9 @@ function validateNightActionTarget(
     }
     case NightActionType.CHANNEL_LOCK: {
       // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
-      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate).
+      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate.
+      // Paired sites that must be removed together: ws-message-handler.ts ~L840 (resolvedTargetId)
+      // and runtime-domain.ts ~L438 (CHANNEL_LOCK resolver).
       if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
       const channel = session.channels[targetId];
       if (!channel) return { valid: false, reason: 'Channel does not exist.' };
@@ -685,21 +688,17 @@ export async function handleSubmitIntent(
       }
       // Defense-in-depth: HACKER channels require sender to be a living Hacker,
       // regardless of channel membership state.
-      if (channel.type === 'HACKER') {
+      if (channel.type === ChannelType.HACKER) {
         const sender = session.players[actorId];
         if (!sender || sender.team !== Team.HACKERS || !sender.alive) {
-          return fail('NOT_IN_CHANNEL', 'You are not authorized for this channel.');
+          return fail(
+            MessageErrorCode.NOT_CHANNEL_MEMBER,
+            'You are not authorized for this channel.',
+          );
         }
       }
       if (!channel.members.includes(actorId)) {
-        return fail('NOT_CHANNEL_MEMBER', 'You are not a member of this channel.');
-      }
-      // PRIVATE (DM) channels are only open during DAY_OPEN.
-      if (channel.type === ChannelType.PRIVATE && session.phase !== Phase.DAY_OPEN) {
-        return fail(MessageErrorCode.PM_PHASE_RESTRICTED, 'Private messages are only allowed during the day discussion phase.');
-      }
-      if (channel.locked) {
-        return fail('CHANNEL_LOCKED', 'This channel is locked.');
+        return fail(MessageErrorCode.NOT_CHANNEL_MEMBER, 'You are not a member of this channel.');
       }
 
       const trimmed = messagePayload.content.trim();
@@ -708,6 +707,15 @@ export async function handleSubmitIntent(
       }
       if (trimmed.length > 500) {
         return fail('MESSAGE_TOO_LONG', 'Message exceeds 500 characters.');
+      }
+
+      // Communication Restriction Framework (#76): single source of truth for
+      // PM-phase, LOCKED, SILENCED, JAMMED (REJECT) and MONITORED / ALTERED
+      // (TRANSFORM). The handler's upstream gates (SYSTEM, HACKER, membership)
+      // run first to keep rejection messages specific to the violation.
+      const decision = evaluateOutboundMessage(session, actorId, channel, trimmed, session.phase);
+      if (decision.kind === 'REJECT') {
+        return fail(decision.code, decision.message);
       }
 
       const now = new Date().toISOString();
@@ -721,20 +729,48 @@ export async function handleSubmitIntent(
       };
 
       // Defense-in-depth: for HACKER channels, filter recipients by team+alive
-      // even if channel.members is somehow wrong.
-      let recipients = channel.members;
-      if (channel.type === 'HACKER') {
+      // even if channel.members is somehow wrong. Copy the array upfront so the
+      // transport layer can't mutate `channel.members` through the alias.
+      let recipients = [...channel.members];
+      if (channel.type === ChannelType.HACKER) {
         recipients = recipients.filter((id) => {
           const p = session.players[id];
           return Boolean(p?.alive && p.team === Team.HACKERS);
         });
       }
 
-      ctx.broadcastChannelMessage(
-        messagePayload.channelId,
-        message,
-        recipients,
-      );
+      if (decision.kind === 'TRANSFORM') {
+        // Sender sees their own original message (Troller spec: "sender does not see the
+        // alteration"). Everyone else on the channel — plus any MONITORED observers — gets
+        // the transformed copy. Observers may not be channel members, so they are unioned in.
+        const transformedRecipients = Array.from(
+          new Set(
+            [...recipients, ...decision.extraRecipients].filter((id) => id !== actorId),
+          ),
+        );
+        ctx.broadcastChannelMessage(messagePayload.channelId, message, [actorId]);
+        if (transformedRecipients.length > 0) {
+          ctx.broadcastChannelMessage(
+            messagePayload.channelId,
+            { ...message, content: decision.content },
+            transformedRecipients,
+          );
+        }
+        // Commit oneShot ALTERED side effect only after the broadcast has fired,
+        // so a future rejection path added downstream can't burn an unused shot.
+        decision.consume();
+        // Persist so the `spent` flag survives DO reload. Non-oneShot
+        // ALTERED and pure-MONITORED TRANSFORMs don't mutate anything, so
+        // this is an occasional no-op write — cheap insurance against
+        // forgetting to save when a future role wires up oneShot ALTERED.
+        await ctx.repo.saveSession(session);
+      } else {
+        ctx.broadcastChannelMessage(
+          messagePayload.channelId,
+          message,
+          recipients,
+        );
+      }
 
       return ok({ messageId: message.id });
     }
@@ -802,7 +838,8 @@ export async function handleSubmitIntent(
 
       // Per-action-type target validation.
       // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
-      // compat with in-flight payloads. TODO: remove fallback once clients migrate.
+      // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
+      // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
       const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
         ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
         : nightPayload.targetPlayerId;

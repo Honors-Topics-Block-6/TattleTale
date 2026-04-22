@@ -97,6 +97,10 @@ export function buildSessionFromLobby(
     // appendPrivateSystemEvent is kept for backward compatibility with sessions that were
     // persisted before this field was introduced and may be missing it on deserialization.
     privateSystemEvents: {},
+    // Communication restrictions (#76). Eagerly empty so new sessions always have the field;
+    // the optional marker on GameState.restrictions remains for sessions persisted before
+    // the framework landed.
+    restrictions: [],
     timers: {
       currentPhaseEndsAt: null,
       currentPhaseDurationSeconds: 0,

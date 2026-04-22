@@ -130,3 +130,55 @@ describe('ChatPanel — PRIVATE channel phase restriction', () => {
     expect(screen.queryByText(/private messages are disabled/i)).not.toBeInTheDocument();
   });
 });
+
+describe('ChatPanel — communication restrictions (#76)', () => {
+  beforeEach(() => {
+    useGameStore.setState(useGameStore.getInitialState());
+  });
+
+  it('SILENCED restriction → banner shown, input hidden', () => {
+    setStore({
+      selfId: 'p1',
+      selfAlive: true,
+      phase: 'DAY_OPEN',
+      channels: { global: makeChannel('global', 'GLOBAL') },
+      myRestrictions: [{ type: 'SILENCED', expiresAt: 'DAY_RESOLVE' }],
+    });
+
+    renderWithSocket(<ChatPanel channelId="global" />);
+    expect(screen.queryByPlaceholderText(/type a message/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/you have been silenced/i)).toBeInTheDocument();
+  });
+
+  it('JAMMED on matching channel type → banner shown', () => {
+    setStore({
+      selfId: 'p1',
+      selfAlive: true,
+      phase: 'DAY_OPEN',
+      channels: { 'dm-p1-p2': makeChannel('dm-p1-p2', 'PRIVATE') },
+      myRestrictions: [
+        { type: 'JAMMED', channelTypes: ['PRIVATE'], expiresAt: 'DAY_RESOLVE' },
+      ],
+    });
+
+    renderWithSocket(<ChatPanel channelId="dm-p1-p2" />);
+    expect(screen.queryByPlaceholderText(/type a message/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/signal is jammed/i)).toBeInTheDocument();
+  });
+
+  it('JAMMED on a different channel type → input remains usable', () => {
+    setStore({
+      selfId: 'p1',
+      selfAlive: true,
+      phase: 'DAY_OPEN',
+      channels: { global: makeChannel('global', 'GLOBAL') },
+      myRestrictions: [
+        { type: 'JAMMED', channelTypes: ['PRIVATE'], expiresAt: 'DAY_RESOLVE' },
+      ],
+    });
+
+    renderWithSocket(<ChatPanel channelId="global" />);
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument();
+    expect(screen.queryByText(/signal is jammed/i)).not.toBeInTheDocument();
+  });
+});

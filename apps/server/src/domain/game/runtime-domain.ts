@@ -11,6 +11,11 @@ import {
 
 import { SystemEventMetadataBuilders } from './system-events.js';
 import { NIGHT_ACTION_TIER } from './role-actions.js';
+import {
+  RestrictionBuilders,
+  applyRestriction,
+  clearExpiredRestrictions,
+} from './restrictions.js';
 
 import type { LobbySettings, LobbyState } from '../lobby/types.js';
 import type {
@@ -429,14 +434,22 @@ export function resolveNightActions(
     } else if (intent.payload.actionType === NightActionType.CHANNEL_LOCK) {
       // Prefer the dedicated targetChannelId field; fall back to targetPlayerId for backward
       // compat with in-flight payloads submitted before clients migrated.
-      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId.
+      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId. Paired
+      // sites: ws-message-handler.ts ~L199 (validator) and ~L840 (resolvedTargetId).
       const channelId = intent.payload.targetChannelId ?? intent.payload.targetPlayerId;
       if (!channelId) continue;
       const channel = session.channels[channelId];
       // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (!channel || channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) continue;
       if (channel.locked) continue;
-      channel.locked = true;
+      // Route through the Communication Restriction Framework so the lock auto-expires at
+      // end of the next Day Cycle (#76 spec). `applyRestriction` re-derives the
+      // `channel.locked` mirror in the same operation, so projections and send-pipeline
+      // fast-paths keep reading the boolean without scanning `session.restrictions`.
+      applyRestriction(
+        session,
+        RestrictionBuilders.locked(channelId, intent.playerId, Phase.DAY_RESOLVE, transitionAt),
+      );
       appendSystemEvent(
         session,
         SystemEventType.CHANNEL_LOCKED,
@@ -509,6 +522,11 @@ export function reconcileSessionRuntime(
   if (session.status !== SessionStatus.ACTIVE) {
     return events;
   }
+
+  // Expire restrictions (and expired channels) tied to the phase we are leaving. Runs after
+  // resolution so same-phase effects still apply, but before `nextPhase` so the reopened
+  // state is visible in the projection emitted immediately after reconcile.
+  clearExpiredRestrictions(session, previousPhase);
 
   const next = nextPhase(previousPhase, previousCycle);
   session.phase = next.phase;

@@ -80,10 +80,42 @@ export enum MessageErrorCode {
    * clients can surface a phase-specific message rather than a generic lock.
    */
   PM_PHASE_RESTRICTED = 'PM_PHASE_RESTRICTED',
+  /**
+   * Sender has an active SILENCED restriction. They cannot send in any
+   * channel until the restriction expires. Distinct from CHANNEL_LOCKED
+   * (channel-scoped) and PLAYER_JAMMED (channel-type-scoped).
+   */
+  PLAYER_SILENCED = 'PLAYER_SILENCED',
+  /**
+   * Sender has an active JAMMED restriction that covers the target
+   * channel's type. They may still send on other channel types (e.g. a
+   * player jammed on PRIVATE can still post in GLOBAL).
+   */
+  PLAYER_JAMMED = 'PLAYER_JAMMED',
   /** Message body is empty after trimming. */
   EMPTY_MESSAGE = 'EMPTY_MESSAGE',
   /** Message body exceeds the 500-character limit. */
   MESSAGE_TOO_LONG = 'MESSAGE_TOO_LONG',
+}
+
+/**
+ * Communication restriction categories applied during Night Resolution and
+ * enforced during the next Day Cycle. Each restriction carries its own
+ * scope (channel, player, or player+channel-types) and an `expiresAt` Phase
+ * that determines when it is cleared. See apps/server/src/domain/game/
+ * restrictions.ts for the typed union and enforcement logic.
+ */
+export enum RestrictionType {
+  /** Channel-scoped: nobody can send in the target channel. Used by Firewall. */
+  LOCKED = 'LOCKED',
+  /** Player-scoped: the target player cannot send in any channel. */
+  SILENCED = 'SILENCED',
+  /** Player + channel-types: the target is blocked on the listed channel types. */
+  JAMMED = 'JAMMED',
+  /** Covert: copies the target's messages (on listed channel types) to an observer. */
+  MONITORED = 'MONITORED',
+  /** Mutates the target's outgoing message content before delivery. */
+  ALTERED = 'ALTERED',
 }
 
 export enum LobbyStatus {

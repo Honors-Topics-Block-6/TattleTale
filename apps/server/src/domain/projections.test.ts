@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { toPlayerSessionView } from './projections.js';
-import { Phase, ChannelType, IntentType, NightActionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { Phase, ChannelType, IntentType, NightActionType, RestrictionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import type { GameState } from './game/types.js';
+import { RestrictionBuilders } from './game/restrictions.js';
 import { buildSessionFromLobby } from './game/session-domain.js';
 import { appendIntent, initializeSessionRuntime } from './game/runtime-domain.js';
 import { DEFAULT_LOBBY_SETTINGS } from './lobby/types.js';
@@ -267,6 +268,37 @@ describe('toPlayerSessionView', () => {
       const dmP2P3 = viewP3.channels.find((c) => c.id === 'dm-p2-p3');
       expect(dmP2P3!.label).toBe('Bob');
     });
+    it('eliminated DM partner: survivor still sees the channel (members=[self], label=null); dead partner no longer sees it', () => {
+      // End-to-end flow for the "Bob is eliminated" case. After eliminatePlayer
+      // strips Bob from members and flips his alive flag, the shared DM must
+      // stay visible to Alice (so history is not lost) with a graceful label
+      // fallback, while Bob's own projection must not leak back the channel
+      // (defense-in-depth against a reconnect racing with the projection).
+      const state = makeGameStateWithDM();
+      // Simulate post-elimination state for p2 (Bob): alive=false and stripped
+      // from all channel member lists. Matches runtime-domain.ts#eliminatePlayer.
+      state.players.p2.alive = false;
+      for (const ch of Object.values(state.channels)) {
+        ch.members = ch.members.filter((id) => id !== 'p2');
+      }
+
+      const viewP1 = toPlayerSessionView(state, 'p1');
+      const dm = viewP1.channels.find((c) => c.id === 'dm-p1-p2');
+      expect(dm).toBeDefined();
+      expect(dm!.members).toEqual(['p1']);
+      // No other member to derive a name from → label degrades to null so the
+      // sidebar renders the "ghost DM" without crashing.
+      expect(dm!.label).toBeNull();
+
+      // From p2's perspective the channel is gone — membership filter at
+      // projections.ts:143-144 removes it before any PRIVATE content could
+      // be emitted back to a reconnecting eliminated player.
+      const viewP2 = toPlayerSessionView(state, 'p2');
+      const dmFromP2 = viewP2.channels.find((c) => c.id === 'dm-p1-p2');
+      expect(dmFromP2).toBeUndefined();
+      // dm-p2-p3 (a DM Bob was in) is also invisible to him now.
+      expect(viewP2.channels.find((c) => c.id === 'dm-p2-p3')).toBeUndefined();
+    });
   });
 
   describe('privateSystemEvents privacy isolation', () => {
@@ -306,6 +338,83 @@ describe('toPlayerSessionView', () => {
         type: 'INVESTIGATION_RESULT',
         targetPlayerId: bId,
       });
+    });
+  });
+
+  describe('myRestrictions projection', () => {
+    it('surfaces own SILENCED restriction to the target and omits it from other viewers', () => {
+      const state = makeGameState({
+        restrictions: [
+          RestrictionBuilders.silenced('p1', 'p2', Phase.DAY_RESOLVE, '2026-01-01T00:00:00Z'),
+        ],
+      });
+
+      const viewTarget = toPlayerSessionView(state, 'p1');
+      expect(viewTarget.myRestrictions).toEqual([
+        { type: RestrictionType.SILENCED, expiresAt: Phase.DAY_RESOLVE },
+      ]);
+
+      const viewOther = toPlayerSessionView(state, 'p2');
+      expect(viewOther.myRestrictions).toEqual([]);
+    });
+
+    it('surfaces JAMMED with channel-type scope but strips attacker identity', () => {
+      const state = makeGameState({
+        restrictions: [
+          RestrictionBuilders.jammed(
+            'p1',
+            [ChannelType.PRIVATE],
+            'p2',
+            Phase.DAY_RESOLVE,
+            '2026-01-01T00:00:00Z',
+          ),
+        ],
+      });
+      const view = toPlayerSessionView(state, 'p1');
+      expect(view.myRestrictions).toHaveLength(1);
+      const [r] = view.myRestrictions;
+      expect(r).toEqual({
+        type: RestrictionType.JAMMED,
+        channelTypes: [ChannelType.PRIVATE],
+        expiresAt: Phase.DAY_RESOLVE,
+      });
+      expect(r as any).not.toHaveProperty('appliedByPlayerId');
+      expect(r as any).not.toHaveProperty('playerId');
+    });
+
+    it('MONITORED is covert — NEITHER the target NOR the observer see it in myRestrictions', () => {
+      const state = makeGameState({
+        restrictions: [
+          RestrictionBuilders.monitored(
+            'p1',
+            'p2',
+            [ChannelType.PRIVATE],
+            'p2',
+            Phase.DAY_RESOLVE,
+            '2026-01-01T00:00:00Z',
+          ),
+        ],
+      });
+      const viewTarget = toPlayerSessionView(state, 'p1');
+      const viewObserver = toPlayerSessionView(state, 'p2');
+      expect(viewTarget.myRestrictions).toEqual([]);
+      expect(viewObserver.myRestrictions).toEqual([]);
+    });
+
+    it('LOCKED is projected to channel members only', () => {
+      const state = makeGameState({
+        restrictions: [
+          RestrictionBuilders.locked('hackers', 'p1', Phase.DAY_RESOLVE, '2026-01-01T00:00:00Z'),
+        ],
+      });
+      // p2 is the only member of `hackers` — they see the lock entry.
+      const viewHacker = toPlayerSessionView(state, 'p2');
+      expect(viewHacker.myRestrictions).toEqual([
+        { type: RestrictionType.LOCKED, channelId: 'hackers', expiresAt: Phase.DAY_RESOLVE },
+      ]);
+      // p1 isn't in `hackers` — no entry.
+      const viewNonMember = toPlayerSessionView(state, 'p1');
+      expect(viewNonMember.myRestrictions).toEqual([]);
     });
   });
 });
