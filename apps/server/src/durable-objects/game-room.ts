@@ -6,6 +6,7 @@ import { LobbyStatus, SessionStatus } from '@tattletale/shared';
 import { DEFAULT_LOBBY_SETTINGS, touchLobby } from '../domain/lobby/types.js';
 import { validateDisplayName } from '../domain/lobby/lobby-code.js';
 import { reconcileSessionRuntime } from '../domain/game/runtime-domain.js';
+import { computePointAwards } from '../domain/game/points.js';
 import { toLobbyView, toPlayerSessionView } from '../domain/projections.js';
 import { DORuntimeRepository } from '../persistence/do-runtime-repo.js';
 import { D1AuditRepository } from '../persistence/d1-audit-repo.js';
@@ -27,6 +28,7 @@ import {
 
 interface WsAttachment {
   playerId: string | null;
+  accountId: string | null;
 }
 
 export class GameRoomDO implements DurableObject {
@@ -60,7 +62,7 @@ export class GameRoomDO implements DurableObject {
 
     // ─── WebSocket upgrade ────────────────────────────────
     if (request.headers.get('Upgrade') === 'websocket') {
-      return this.handleWebSocketUpgrade();
+      return this.handleWebSocketUpgrade(request);
     }
 
     return new Response('not found', { status: 404 });
@@ -77,6 +79,7 @@ export class GameRoomDO implements DurableObject {
     const body = (await request.json()) as {
       lobbyCode: string;
       displayName: string;
+      accountId?: string;
       settings?: Partial<typeof DEFAULT_LOBBY_SETTINGS>;
     };
 
@@ -94,6 +97,7 @@ export class GameRoomDO implements DurableObject {
       players: [
         {
           playerId,
+          accountId: body.accountId,
           displayName,
           isHost: true,
           ready: false,
@@ -123,12 +127,15 @@ export class GameRoomDO implements DurableObject {
 
   // ─── WebSocket Upgrade ──────────────────────────────────
 
-  private handleWebSocketUpgrade(): Response {
+  private handleWebSocketUpgrade(request: Request): Response {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
     this.state.acceptWebSocket(server);
-    (server as any).serializeAttachment({ playerId: null } satisfies WsAttachment);
+    // Read the server-verified accountId injected by the Worker router (C1).
+    // This header is set only after the router verifies a WS ticket — never trusted from clients.
+    const accountId = request.headers.get('X-Verified-Account-Id');
+    (server as any).serializeAttachment({ playerId: null, accountId: accountId ?? null } satisfies WsAttachment);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -330,6 +337,8 @@ export class GameRoomDO implements DurableObject {
       });
     } catch { /* non-fatal */ }
 
+    await this.awardGlobalPoints(session, lobby);
+
     // Update lobby status
     lobby.status = LobbyStatus.CLOSED;
     touchLobby(lobby, new Date().toISOString());
@@ -348,6 +357,42 @@ export class GameRoomDO implements DurableObject {
     await this.state.storage.setAlarm(Date.now() + 3000);
   }
 
+  private async awardGlobalPoints(session: GameState, lobby: LobbyState): Promise<void> {
+    const pointAwards = computePointAwards(session, lobby);
+    if (pointAwards.length === 0) return;
+
+    const now = new Date().toISOString();
+    // Note: display_name is intentionally NOT touched here — users manage their
+    // own display name via the profile endpoint, and overwriting it from a
+    // session snapshot would silently revert edits made mid-game.
+    const statements = pointAwards.map((award) =>
+      this.env.DB.prepare(`
+        UPDATE users
+        SET
+          total_points = total_points + ?,
+          games_played = games_played + 1,
+          wins = wins + ?,
+          losses = losses + ?,
+          updated_at = ?
+        WHERE id = ?
+      `).bind(
+        award.points,
+        award.didWin ? 1 : 0,
+        award.didLose ? 1 : 0,
+        now,
+        award.accountId,
+      )
+    );
+
+    try {
+      await this.env.DB.batch(statements);
+    } catch (err) {
+      // Non-fatal: scoring persistence should not block game teardown, but
+      // silent failure would mask data loss — log for observability.
+      console.error('[awardGlobalPoints] failed to persist points:', err);
+    }
+  }
+
   // ─── Private Helpers ────────────────────────────────────
 
   private createHandlerContext(): HandlerContext {
@@ -359,7 +404,24 @@ export class GameRoomDO implements DurableObject {
         return att.playerId;
       },
       setPlayerIdForWs: (ws, playerId) => {
-        (ws as any).serializeAttachment({ playerId } satisfies WsAttachment);
+        const att = (ws as any).deserializeAttachment() as WsAttachment;
+        (ws as any).serializeAttachment({ ...att, playerId } satisfies WsAttachment);
+      },
+      getAccountIdForWs: (ws) => {
+        const att = (ws as any).deserializeAttachment() as WsAttachment;
+        return att.accountId ?? null;
+      },
+      getAccountDisplayName: async (accountId) => {
+        try {
+          const result = await this.env.DB.prepare(
+            `SELECT display_name AS displayName FROM users WHERE id = ? LIMIT 1`,
+          ).bind(accountId).all();
+          const row = (result as any).results?.[0] as { displayName?: string } | undefined;
+          return row?.displayName ?? null;
+        } catch {
+          // DB error shouldn't block joins — caller falls back to payload name.
+          return null;
+        }
       },
       broadcastLobbyState: (lobby) => this.broadcastLobbyState(lobby),
       broadcastSessionState: (session) => this.broadcastSessionState(session),

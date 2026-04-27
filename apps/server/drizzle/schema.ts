@@ -52,3 +52,44 @@ export const installedApps = sqliteTable('installed_apps', {
   appId: text('app_id').notNull(),
   installedAt: text('installed_at').notNull(),
 });
+
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  displayName: text('display_name').notNull(),
+  avatar: text('avatar'),
+  totalPoints: integer('total_points').notNull().default(0),
+  gamesPlayed: integer('games_played').notNull().default(0),
+  wins: integer('wins').notNull().default(0),
+  losses: integer('losses').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const userSessions = sqliteTable('user_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').unique(),
+  expiresAt: text('expires_at').notNull(),
+  revokedAt: text('revoked_at'),
+  createdAt: text('created_at').notNull(),
+});
+
+export const wsTickets = sqliteTable('ws_tickets', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull(),
+  used: integer('used').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
+
+export const authRateLimits = sqliteTable('auth_rate_limits', {
+  ip: text('ip').notNull(),
+  action: text('action').notNull(),
+  windowStart: text('window_start').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+});

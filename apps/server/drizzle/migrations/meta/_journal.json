@@ -8,6 +8,41 @@
       "when": 1775607069637,
       "tag": "0000_odd_puck",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776844800000,
+      "tag": "0001_global_points_leaderboard",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776889800000,
+      "tag": "0002_user_accounts_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776895200000,
+      "tag": "0003_security_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776898800000,
+      "tag": "0004_drop_user_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776902400000,
+      "tag": "0005_drop_session_plaintext_token",
+      "breakpoints": true
     }
   ]
 }

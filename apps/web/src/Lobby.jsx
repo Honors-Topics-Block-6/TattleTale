@@ -1,6 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useGameStore from './stores/gameStore';
 import { useSocket } from './lib/SocketContext';
+import LeaderboardPanel from './components/LeaderboardPanel';
+import {
+  fetchMe,
+  getWsTicket,
+  login,
+  logout,
+  register,
+  updateProfile,
+} from './lib/auth-api';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
 const API_BASE = WS_URL.replace(/^ws/, 'http');
@@ -38,14 +47,40 @@ export default function Lobby() {
   const lobbyView = useGameStore((s) => s.lobbyView);
   const selfId = useGameStore((s) => s.selfId);
 
-  // 'title' | 'create' | 'join' | 'room' | 'error'
-  const [screen, setScreen] = useState('title');
+  // 'auth' | 'title' | 'profile' | 'leaderboard' | 'create' | 'join' | 'room' | 'error'
+  const [screen, setScreen] = useState('auth');
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [authMode, setAuthMode] = useState('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [profileDraftName, setProfileDraftName] = useState('');
+  const [profileDraftAvatar, setProfileDraftAvatar] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
 
   // Inputs
   const [displayName, setDisplayName] = useState(randomDisplayName());
   const [joinCode, setJoinCode] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    // Session is managed by HttpOnly cookie — no localStorage token (C3)
+    fetchMe()
+      .then((data) => {
+        if (cancelled) return;
+        setCurrentUser(data.user);
+        setDisplayName(data.user.displayName || randomDisplayName());
+        setProfileDraftName(data.user.displayName || '');
+        setProfileDraftAvatar(data.user.avatar || '');
+        setScreen('title');
+      })
+      .catch(() => {
+        if (!cancelled) setScreen('auth');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goTitle = () => {
     socket.clearCredentials();
@@ -55,6 +90,76 @@ export default function Lobby() {
     setErrorMsg('');
     setBusy(false);
     setScreen('title');
+  };
+
+  const handleAuthSubmit = async () => {
+    setBusy(true);
+    setErrorMsg('');
+    try {
+      const payload = authMode === 'register'
+        ? await register({
+            email: authEmail.trim(),
+            password: authPassword,
+            displayName: displayName.trim(),
+          })
+        : await login({
+            email: authEmail.trim(),
+            password: authPassword,
+          });
+      // Session cookie is set by the server — no localStorage token (C3).
+      // On register, the server returns { ok: true, user: null } when the
+      // email was already registered (to avoid revealing email existence —
+      // C5). In that case no session cookie was set, so we must stay on the
+      // auth screen instead of advancing into an unauthenticated title.
+      if (!payload.user) {
+        setBusy(false);
+        setErrorMsg(
+          authMode === 'register'
+            ? 'Could not complete registration. If you already have an account, please sign in.'
+            : 'Authentication failed',
+        );
+        return;
+      }
+      setCurrentUser(payload.user);
+      setDisplayName(payload.user.displayName || randomDisplayName());
+      setProfileDraftName(payload.user.displayName || '');
+      setProfileDraftAvatar(payload.user.avatar || '');
+      setBusy(false);
+      setScreen('title');
+    } catch (err) {
+      fail(err?.message || 'Authentication failed');
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logout();
+    } catch {
+      // best effort — server clears the cookie; proceed regardless
+    }
+    setCurrentUser(null);
+    socket.clearCredentials();
+    socket.close();
+    setLobbyView(null);
+    setSelfId('');
+    setScreen('auth');
+  };
+
+  const handleSaveProfile = async () => {
+    setBusy(true);
+    setErrorMsg('');
+    try {
+      const updated = await updateProfile({
+        displayName: profileDraftName.trim(),
+        avatar: profileDraftAvatar.trim() ? profileDraftAvatar.trim() : null,
+      });
+      setCurrentUser(updated.user);
+      setDisplayName(updated.user.displayName || displayName);
+      setBusy(false);
+      setScreen('title');
+    } catch (err) {
+      fail(err?.message || 'Failed to update profile');
+    }
   };
 
   const fail = (msg) => {
@@ -77,9 +182,11 @@ export default function Lobby() {
 
     try {
       // 1. Create the lobby over HTTP. Creator is auto-added as host.
+      // accountId is resolved server-side from the session cookie — never sent by the client (C1).
       const resp = await fetch(`${API_BASE}/api/lobby/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           displayName: name,
           settings: { minPlayers: 1 },
@@ -137,7 +244,13 @@ export default function Lobby() {
     setErrorMsg('');
 
     try {
-      const wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+      // Obtain a short-lived WS ticket so the server can verify our identity
+      // without the client ever supplying an accountId directly (C1).
+      let wsUrl = `${WS_URL}/api/lobby/${code}/ws`;
+      if (currentUser) {
+        const ticket = await getWsTicket().catch(() => null);
+        if (ticket) wsUrl = `${wsUrl}?wsTicket=${encodeURIComponent(ticket)}`;
+      }
 
       socket.clearCredentials();
       socket.close();
@@ -182,7 +295,45 @@ export default function Lobby() {
         <TitleScreen
           onCreate={() => setScreen('create')}
           onJoin={() => setScreen('join')}
+          onLeaderboard={() => setScreen('leaderboard')}
+          onProfile={() => setScreen('profile')}
+          onSignOut={handleSignOut}
+          user={currentUser}
         />
+      )}
+
+      {screen === 'auth' && (
+        <AuthScreen
+          mode={authMode}
+          setMode={setAuthMode}
+          email={authEmail}
+          setEmail={setAuthEmail}
+          password={authPassword}
+          setPassword={setAuthPassword}
+          displayName={displayName}
+          setDisplayName={setDisplayName}
+          onSubmit={handleAuthSubmit}
+          busy={busy}
+          errorMsg={errorMsg}
+        />
+      )}
+
+      {screen === 'profile' && (
+        <ProfileScreen
+          user={currentUser}
+          displayName={profileDraftName}
+          setDisplayName={setProfileDraftName}
+          avatar={profileDraftAvatar}
+          setAvatar={setProfileDraftAvatar}
+          onSave={handleSaveProfile}
+          onBack={goTitle}
+          busy={busy}
+          errorMsg={errorMsg}
+        />
+      )}
+
+      {screen === 'leaderboard' && (
+        <LeaderboardScreen onBack={goTitle} />
       )}
 
       {screen === 'create' && (
@@ -389,11 +540,120 @@ function ErrorBanner({ message }) {
   );
 }
 
-function TitleScreen({ onCreate, onJoin }) {
+function TitleScreen({ onCreate, onJoin, onLeaderboard, onProfile, onSignOut, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+      <div style={{ color: '#fff', fontSize: 12 }}>
+        Signed in as <strong>{user?.displayName || user?.email || 'Unknown'}</strong>
+      </div>
       <PrimaryButton onClick={onCreate}>Create Game</PrimaryButton>
       <PrimaryButton onClick={onJoin}>Join Game</PrimaryButton>
+      <SecondaryButton onClick={onLeaderboard}>Leaderboard</SecondaryButton>
+      <SecondaryButton onClick={onProfile}>Profile</SecondaryButton>
+      <SecondaryButton onClick={onSignOut}>Sign Out</SecondaryButton>
+    </div>
+  );
+}
+
+function AuthScreen({
+  mode,
+  setMode,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  displayName,
+  setDisplayName,
+  onSubmit,
+  busy,
+  errorMsg,
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+      <div style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+        {mode === 'register' ? 'Create Account' : 'Sign In'}
+      </div>
+      <TextInput value={email} onChange={setEmail} placeholder="Email" maxLength={200} />
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password (8+ chars)"
+        maxLength={200}
+        style={{
+          width: 220,
+          padding: '7px 10px',
+          fontFamily: 'Tahoma, sans-serif',
+          fontSize: 13,
+          border: '1px solid #7f9db9',
+          borderRadius: 2,
+        }}
+      />
+      {mode === 'register' && (
+        <TextInput
+          value={displayName}
+          onChange={setDisplayName}
+          placeholder="Display name"
+          maxLength={24}
+        />
+      )}
+      <ErrorBanner message={errorMsg} />
+      <PrimaryButton onClick={onSubmit} disabled={busy}>
+        {busy ? 'Please wait…' : mode === 'register' ? 'Register' : 'Login'}
+      </PrimaryButton>
+      <SecondaryButton onClick={() => setMode(mode === 'register' ? 'login' : 'register')} disabled={busy}>
+        {mode === 'register' ? 'Have an account? Sign In' : 'Need an account? Register'}
+      </SecondaryButton>
+    </div>
+  );
+}
+
+function LeaderboardScreen({ onBack }) {
+  return (
+    <div
+      style={{
+        width: 520,
+        maxWidth: '90vw',
+        height: 450,
+        background: 'rgba(255,255,255,0.92)',
+        borderRadius: 6,
+        padding: 12,
+        boxSizing: 'border-box',
+      }}
+    >
+      <LeaderboardPanel pageSize={10} compact />
+      <div style={{ marginTop: 10, textAlign: 'center' }}>
+        <SecondaryButton onClick={onBack}>Back</SecondaryButton>
+      </div>
+    </div>
+  );
+}
+
+function ProfileScreen({
+  user,
+  displayName,
+  setDisplayName,
+  avatar,
+  setAvatar,
+  onSave,
+  onBack,
+  busy,
+  errorMsg,
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', width: 320 }}>
+      <div style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Profile</div>
+      <div style={{ color: '#fff', fontSize: 11 }}>{user?.email}</div>
+      <TextInput value={displayName} onChange={setDisplayName} placeholder="Display name" maxLength={24} />
+      <TextInput value={avatar} onChange={setAvatar} placeholder="Avatar URL (optional)" maxLength={500} />
+      <div style={{ color: '#fff', fontSize: 11 }}>
+        Points: {user?.totalPoints ?? 0} | Games: {user?.gamesPlayed ?? 0} | W/L: {user?.wins ?? 0}/{user?.losses ?? 0}
+      </div>
+      <ErrorBanner message={errorMsg} />
+      <PrimaryButton onClick={onSave} disabled={busy}>
+        {busy ? 'Saving…' : 'Save Profile'}
+      </PrimaryButton>
+      <SecondaryButton onClick={onBack} disabled={busy}>Back</SecondaryButton>
     </div>
   );
 }
