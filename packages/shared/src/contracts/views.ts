@@ -154,6 +154,11 @@ export interface HackerNightView {
   confirmedTarget: string | null;
 }
 
+export interface ProtectNightView {
+  /** Viewer's own confirmed PROTECT target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
 export interface PlayerSessionView {
   gameId: string;
   lobbyCode: string;
@@ -177,6 +182,12 @@ export interface PlayerSessionView {
    * branches in the contract carry hacker-night meaning.
    */
   hackerNightView: HackerNightView | null;
+  /**
+   * Security-Specialist-only night state. Non-null iff viewer is a living
+   * SECURITY_SPECIALIST AND phase is NIGHT_ACTIONS. Single discriminator —
+   * clients render ProtectPanel iff this is non-null.
+   */
+  protectNightView: ProtectNightView | null;
   /**
    * Active communication restrictions affecting this viewer. Covert
    * restrictions (MONITORED) are always omitted. Populated by the
