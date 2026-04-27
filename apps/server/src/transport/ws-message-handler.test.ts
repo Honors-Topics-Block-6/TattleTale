@@ -62,6 +62,8 @@ function buildCtx(opts: {
     closeWsForPlayer: () => {},
     setPhaseAlarm: async () => {},
     clearPhaseAlarm: async () => {},
+    getAccountIdForWs: () => null,
+    getAccountDisplayName: async () => null,
   };
   const ws = {} as WebSocket;
   return { ctx, ws };

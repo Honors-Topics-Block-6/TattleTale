@@ -53,6 +53,13 @@ export interface HandlerContext {
   auditRepo: GameAuditRepository;
   getPlayerIdForWs(ws: WebSocket): string | null;
   setPlayerIdForWs(ws: WebSocket, playerId: string): void;
+  getAccountIdForWs(ws: WebSocket): string | null;
+  /**
+   * Look up the canonical display name stored on the `users` row for this
+   * account. Returns `null` if the account doesn't exist (or on DB error) so
+   * the caller can fall back to the client-supplied value.
+   */
+  getAccountDisplayName(accountId: string): Promise<string | null>;
   broadcastLobbyState(lobby: LobbyState): void;
   broadcastSessionState(session: GameState): void;
   broadcastChannelMessage(
@@ -308,13 +315,29 @@ export async function handleJoinLobby(
       return fail('LOBBY_FULL', 'Lobby has reached its maximum player count.');
     }
 
-    const displayName = validateDisplayName(payload.displayName);
+    // accountId is resolved server-side from the WS ticket, never from the payload (C1)
+    const accountId = ctx.getAccountIdForWs(ws) ?? undefined;
+
+    // For authenticated joiners, the authoritative display name is the one
+    // stored on their `users` row — the payload name is only a hint from the
+    // client. This stops a logged-in user from impersonating another account
+    // by typing their name into the join form. For anonymous joiners (no
+    // accountId) we still fall back to the payload value.
+    let displayName: string;
+    if (accountId) {
+      const stored = await ctx.getAccountDisplayName(accountId);
+      displayName = stored ?? validateDisplayName(payload.displayName);
+    } else {
+      displayName = validateDisplayName(payload.displayName);
+    }
+
     const now = new Date().toISOString();
     const playerId = generateId();
     const reconnectToken = generateToken();
 
     lobby.players.push({
       playerId,
+      accountId,
       displayName,
       isHost: false,
       ready: false,

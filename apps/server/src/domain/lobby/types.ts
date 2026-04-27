@@ -11,6 +11,7 @@ export interface LobbySettings {
 
 export interface LobbyPlayerState {
   playerId: string;
+  accountId?: string;
   displayName: string;
   isHost: boolean;
   ready: boolean;
