@@ -1,3 +1,5 @@
+import { ROLE_DEFINITIONS } from '@tattletale/shared';
+
 const TEMPLATES = {
   GAME_STARTED: () => 'The game has begun.',
   PLAYER_VOTED_OUT: ({ targetDisplayName } = {}) =>
@@ -10,6 +12,10 @@ const TEMPLATES = {
   MESSAGE_INTEGRITY_COMPROMISED: () => 'A message was tampered with.',
   TEMP_CHANNEL_CREATED: () => 'A new channel opened.',
   PSYCHIC_SIGNAL_RECEIVED: () => 'A psychic signal is coming through.',
+  INVESTIGATION_RESULT: ({ targetDisplayName, targetRoleId } = {}) => {
+    const roleName = ROLE_DEFINITIONS.get(targetRoleId)?.displayName ?? 'Unknown Role';
+    return `You investigated ${targetDisplayName ?? 'a player'}. Their role: ${roleName}.`;
+  },
 };
 
 function formatEvent(event) {
