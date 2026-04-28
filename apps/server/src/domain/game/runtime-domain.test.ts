@@ -340,6 +340,11 @@ describe('runtime-domain', () => {
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
+      // Strip THE_BOSS so plurality-voting tests are not perturbed by the
+      // override path (#85). The Boss-specific tests below re-assign the role.
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -485,6 +490,68 @@ describe('runtime-domain', () => {
       submitKill(session, h2, f1);
       expect(resolveHackerKillTargetForTest(session)).toBe(f1);
     });
+
+    it("The Boss's target overrides plurality (#85)", () => {
+      const { session } = setupNightSession();
+      const [h1, h2, h3] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      // Need at least 3 hackers to demonstrate override; setup uses 2. Promote a friend.
+      if (!h3) {
+        session.players[f2].team = Team.HACKERS;
+      }
+      const livingHackers = Object.values(session.players)
+        .filter((p) => p.alive && p.team === Team.HACKERS).map((p) => p.playerId);
+      const [b, ...rest] = livingHackers;
+      session.players[b].roleId = RoleId.THE_BOSS;
+      // Pick a non-Hacker target list. f1 stays Friend.
+      const friendsAlive = Object.values(session.players).filter((p) => p.alive && p.team === Team.FRIENDS).map((p) => p.playerId);
+      const targetA = friendsAlive[0];
+      const targetB = friendsAlive[1] ?? friendsAlive[0];
+      // Two non-Boss hackers vote A; Boss votes B. Boss wins.
+      for (const r of rest) submitKill(session, r, targetA);
+      submitKill(session, b, targetB);
+      expect(resolveHackerKillTargetForTest(session)).toBe(targetB);
+      // Sanity: ensure rest size is at least 1 so plurality would have differed.
+      expect(rest.length).toBeGreaterThanOrEqual(1);
+      void h1; void h2;
+    });
+
+    it('falls back to plurality when The Boss abstains', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      // Promote a friend so we have 3 living hackers and plurality is meaningful
+      // when the Boss does not submit.
+      session.players[f2].team = Team.HACKERS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      // Boss abstains; the two non-Boss hackers both vote f1 → plurality wins.
+      submitKill(session, h2, f1);
+      submitKill(session, f2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('falls back to plurality when The Boss is dead', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      session.players[h1].alive = false;
+      // With Boss dead, only h2 is a living Hacker → lone-hacker plurality.
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it("falls back to plurality when The Boss's target is invalid (e.g. fellow Hacker)", () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.players[f2].team = Team.HACKERS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      submitKill(session, h1, h2); // invalid: targets another Hacker
+      submitKill(session, h2, f1);
+      submitKill(session, f2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
   });
 
   describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
@@ -494,6 +561,10 @@ describe('runtime-domain', () => {
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
       session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      // Strip THE_BOSS so plurality-tie tests are not perturbed by Boss override (#85).
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -670,6 +741,11 @@ describe('runtime-domain', () => {
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
       session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      // Strip THE_BOSS so plurality-voting tests are not perturbed by the
+      // override path (#85). Boss-specific tests can re-assign the role.
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -788,6 +864,53 @@ describe('runtime-domain', () => {
       expect(tempChannels[0].locked).toBe(false);
       const ev = session.systemEvents.find((e) => e.type === SystemEventType.TEMP_CHANNEL_CREATED);
       expect(ev).toBeDefined();
+    });
+
+    it('Tier 5 CREATE_TEMP_CHAT (multi-target) invites every selected player and filters dead/self/duplicates', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2, f3] = friendIds(session);
+      // Mark a fourth player as dead to confirm filtering.
+      const allFriends = friendIds(session);
+      const deadId = allFriends[3];
+      session.players[deadId].alive = false;
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: {
+          actionType: NightActionType.CREATE_TEMP_CHAT,
+          targetPlayerId: null,
+          targetPlayerIds: [f2, f3, f1, f2, deadId],
+          metadata: {},
+        },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const tempChannels = Object.values(session.channels).filter((c) => c.type === ChannelType.TEMP);
+      expect(tempChannels).toHaveLength(1);
+      expect(tempChannels[0].members.sort()).toEqual([f1, f2, f3].sort());
+    });
+
+    it('Tier 5 CREATE_TEMP_CHAT (multi-target) creates no channel when every invitee is invalid', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: {
+          actionType: NightActionType.CREATE_TEMP_CHAT,
+          targetPlayerId: null,
+          targetPlayerIds: [f1],
+          metadata: {},
+        },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(Object.values(session.channels).some((c) => c.type === ChannelType.TEMP)).toBe(false);
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.TEMP_CHANNEL_CREATED)).toBe(false);
     });
 
     it('Tier 5 CHANNEL_LOCK sets locked=true and appends a LOCKED restriction expiring at DAY_RESOLVE', () => {
