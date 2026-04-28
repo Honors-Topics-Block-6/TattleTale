@@ -84,7 +84,8 @@ export type SystemEventMetadata =
   | { type: 'TEMP_CHANNEL_CREATED'; channelId: string }
   | { type: 'PSYCHIC_SIGNAL_RECEIVED' }
   | { type: 'INVESTIGATION_RESULT'; targetPlayerId: string; targetDisplayName: string; targetRoleId: string | null; targetTeam: Team }
-  | { type: 'NIGHT_KILL_PROTECTED'; targetPlayerId: string; targetDisplayName: string };
+  | { type: 'NIGHT_KILL_PROTECTED'; targetPlayerId: string; targetDisplayName: string }
+  | { type: 'ROLE_CHANGED'; previousRoleId: string | null; newRoleId: string | null };
 
 export interface SystemEventView {
   id: string;
@@ -165,6 +166,13 @@ export interface ProtectNightView {
   confirmedTarget: string | null;
 }
 
+export interface JealousNightView {
+  /** Viewer's own confirmed SWAP_ROLE target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+  /** True iff the Jealous has already used their once-per-game swap. */
+  used: boolean;
+}
+
 /**
  * Generic single-target Hacker night-action view (#86–#89).
  * Used by Signal Jammer (JAM), Eavesdropper (MONITOR), Troller (MISDIRECT),
@@ -234,6 +242,18 @@ export interface PlayerSessionView {
    * clients render ProtectPanel iff this is non-null.
    */
   protectNightView: ProtectNightView | null;
+  /**
+   * The Jealous (#90) night state. Non-null iff viewer is a living JEALOUS
+   * AND phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * JealousPanel iff this is non-null.
+   */
+  jealousNightView: JealousNightView | null;
+  /**
+   * Player ids of NEUTRAL-team survivors at game end. `null` while the
+   * session is still active. Empty array when the game ends with no
+   * neutrals alive.
+   */
+  neutralWinners: string[] | null;
   /**
    * Signal Jammer (#86) night state. Non-null iff viewer is a living
    * SIGNAL_JAMMER AND phase is NIGHT_ACTIONS.

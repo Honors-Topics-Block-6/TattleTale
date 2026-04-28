@@ -1,4 +1,4 @@
-import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist, selectIsSignalJammer, selectIsEavesdropper, selectIsTroller, selectIsImitator, selectIsFirewall, selectIsVengeful, selectIsExtrovert } from '../../stores/gameStore';
+import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist, selectIsJealous, selectIsSignalJammer, selectIsEavesdropper, selectIsTroller, selectIsImitator, selectIsFirewall, selectIsVengeful, selectIsExtrovert } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
 import ChannelSidebar from './ChannelSidebar';
@@ -7,6 +7,7 @@ import VotePanel from './VotePanel';
 import NightPanel from './NightPanel';
 import InvestigatePanel from './InvestigatePanel';
 import ProtectPanel from './ProtectPanel';
+import JealousPanel from './JealousPanel';
 import HackerCommPanel from './HackerCommPanel';
 import FirewallPanel from './FirewallPanel';
 import VengeancePanel from './VengeancePanel';
@@ -22,6 +23,7 @@ function TattleStationComponent() {
   const isHacker = useGameStore(selectIsHacker);
   const isWhiteHatHacker = useGameStore(selectIsWhiteHatHacker);
   const isSecuritySpecialist = useGameStore(selectIsSecuritySpecialist);
+  const isJealous = useGameStore(selectIsJealous);
   const isSignalJammer = useGameStore(selectIsSignalJammer);
   const isEavesdropper = useGameStore(selectIsEavesdropper);
   const isTroller = useGameStore(selectIsTroller);
@@ -50,6 +52,7 @@ function TattleStationComponent() {
       if (isHacker) return <NightPanel />;
       if (isWhiteHatHacker) return <InvestigatePanel />;
       if (isSecuritySpecialist) return <ProtectPanel />;
+      if (isJealous) return <JealousPanel />;
       if (isFirewall) return <FirewallPanel />;
       if (isVengeful) return <VengeancePanel />;
       if (isExtrovert) return <InvitePanel />;

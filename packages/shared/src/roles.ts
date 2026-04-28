@@ -22,4 +22,5 @@ export const ROLE_DEFINITIONS: ReadonlyMap<RoleId, RoleDefinition> = new Map([
   [RoleId.EAVESDROPPER, { id: RoleId.EAVESDROPPER, team: Team.HACKERS, displayName: 'Eavesdropper', isBase: false, unique: true, minPlayers: 9 }],
   [RoleId.TROLLER, { id: RoleId.TROLLER, team: Team.HACKERS, displayName: 'Troller', isBase: false, unique: true, minPlayers: 11 }],
   [RoleId.IMITATOR, { id: RoleId.IMITATOR, team: Team.HACKERS, displayName: 'Imitator', isBase: false, unique: true, minPlayers: 11 }],
+  [RoleId.JEALOUS, { id: RoleId.JEALOUS, team: Team.NEUTRAL, displayName: 'The Jealous', isBase: true, unique: true, minPlayers: 9 }],
 ]);

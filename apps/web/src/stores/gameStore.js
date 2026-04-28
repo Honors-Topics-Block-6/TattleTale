@@ -47,6 +47,11 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Jealous slice (#90)
+  jealousNightView: null,
+  pendingJealousSelection: null,
+  neutralWinners: null,
+
   // Hacker comm-role slices (#86–#89). Single pending selection per role —
   // each role only sees its own panel.
   jammerNightView: null,
@@ -234,6 +239,17 @@ const useGameStore = create(
       set((state) => {
         state.pendingProtectSelection = null;
       }),
+
+    // --- Jealous actions (#90) ---
+
+    selectJealousTarget: (id) =>
+      set((state) => {
+        if (state.jealousNightView?.confirmedTarget) return;
+        if (state.jealousNightView?.used) return;
+        state.pendingJealousSelection = id;
+      }),
+    clearJealousSelection: () =>
+      set((state) => { state.pendingJealousSelection = null; }),
 
     // --- Hacker comm-role actions (#86–#89) ---
 
@@ -444,6 +460,8 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.jealousNightView = view.jealousNightView ?? null;
+        state.neutralWinners = view.neutralWinners ?? null;
         state.jammerNightView = view.jammerNightView ?? null;
         state.eavesdropperNightView = view.eavesdropperNightView ?? null;
         state.trollerNightView = view.trollerNightView ?? null;
@@ -481,6 +499,7 @@ const useGameStore = create(
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingJealousSelection = null;
           state.pendingJammerSelection = null;
           state.pendingEavesdropperSelection = null;
           state.pendingTrollerSelection = null;
@@ -560,6 +579,7 @@ function selectIsRole(state, roleId) {
   return Boolean(self?.alive);
 }
 
+export const selectIsJealous = (state) => selectIsRole(state, 'JEALOUS');
 export const selectIsSignalJammer = (state) => selectIsRole(state, 'SIGNAL_JAMMER');
 export const selectIsEavesdropper = (state) => selectIsRole(state, 'EAVESDROPPER');
 export const selectIsTroller = (state) => selectIsRole(state, 'TROLLER');

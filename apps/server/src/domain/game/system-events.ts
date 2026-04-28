@@ -44,6 +44,9 @@ export const SystemEventMetadataBuilders = {
   nightKillProtected(targetPlayerId: string, targetDisplayName: string): SystemEventMetadata {
     return { type: 'NIGHT_KILL_PROTECTED', targetPlayerId, targetDisplayName };
   },
+  roleChanged(previousRoleId: string | null, newRoleId: string | null): SystemEventMetadata {
+    return { type: 'ROLE_CHANGED', previousRoleId, newRoleId };
+  },
 };
 
 /** Compile-time guarantee: every SystemEventType value has a corresponding builder. */
@@ -51,5 +54,5 @@ type _BuilderCoverage = SystemEventType extends keyof typeof SystemEventMetadata
   | 'PLAYER_VOTED_OUT' | 'PLAYER_KILLED_AT_NIGHT' | 'NO_KILL_TONIGHT' | 'GAME_STARTED'
   | 'CHANNEL_LOCKED' | 'COMMUNICATION_JAMMED' | 'MESSAGE_INTEGRITY_COMPROMISED'
   | 'TEMP_CHANNEL_CREATED' | 'PSYCHIC_SIGNAL_RECEIVED'
-  | 'INVESTIGATION_RESULT' | 'NIGHT_KILL_PROTECTED'
+  | 'INVESTIGATION_RESULT' | 'NIGHT_KILL_PROTECTED' | 'ROLE_CHANGED'
   ? true : never;

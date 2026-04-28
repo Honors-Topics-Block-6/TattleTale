@@ -221,6 +221,9 @@ function validateNightActionTarget(
       if (!targetId || targetId === actorId) return { valid: false, reason: 'SWAP_ROLE requires another player as target.' };
       const target = session.players[targetId];
       if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      if (actor?.roleId === 'JEALOUS' && actor.jealousUsed) {
+        return { valid: false, reason: 'Jealous ability already used this game.' };
+      }
       return { valid: true };
     }
     default: {
