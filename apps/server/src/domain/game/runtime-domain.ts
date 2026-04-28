@@ -325,29 +325,89 @@ export function resolveNightActions(
           targetPlayer.team,
         ),
       );
+    } else if (intent.payload.actionType === NightActionType.MONITOR) {
+      // Eavesdropper (#87): covert MONITORED restriction on PRIVATE channels.
+      // Expires at the end of the next Day Cycle. Forwarding to the observer
+      // is handled at message-ingress time; the projection layer never
+      // surfaces MONITORED to the target (covert by design).
+      applyRestriction(
+        session,
+        RestrictionBuilders.monitored(
+          target,
+          intent.playerId,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
     }
-    // MONITOR: cross-cycle channel-activity tracking is deferred (see issue #74 follow-up).
-    // The intent is accepted and resolved in tier order so the infrastructure is exercised.
   }
 
   // ── Tier 3: Communication interference ───────────────────────────
-  // JAM / MISDIRECT / IMITATE require cross-cycle effect state (apply on next day).
-  // Public placeholder events are now emitted so players see that interference occurred.
-  // Cross-cycle effect application (actual message suppression / redirection) is still
-  // deferred to a follow-up task — only the events are wired here.
   for (const intent of byTier(3)) {
     const submitter = session.players[intent.playerId];
     if (!submitter || !submitter.alive) continue;
+    const target = intent.payload.targetPlayerId;
+    if (!target) continue;
+    const targetPlayer = session.players[target];
+    if (!targetPlayer || !targetPlayer.alive) continue;
 
     if (intent.payload.actionType === NightActionType.JAM) {
+      // Signal Jammer (#86): JAMMED on PRIVATE channels for the next Day Cycle.
+      applyRestriction(
+        session,
+        RestrictionBuilders.jammed(
+          target,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
       appendSystemEvent(session, SystemEventType.COMMUNICATION_JAMMED, transitionAt,
         SystemEventMetadataBuilders.communicationJammed());
     } else if (intent.payload.actionType === NightActionType.MISDIRECT) {
+      // Troller (#88): one-shot ALTERED (SCRAMBLE mode) on the target's first PM.
+      applyRestriction(
+        session,
+        RestrictionBuilders.altered(
+          target,
+          [ChannelType.PRIVATE],
+          'SCRAMBLE',
+          true, // oneShot — fires on first PM only
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
       appendSystemEvent(session, SystemEventType.MESSAGE_INTEGRITY_COMPROMISED, transitionAt,
         SystemEventMetadataBuilders.messageIntegrityCompromised());
     } else if (intent.payload.actionType === NightActionType.IMITATE) {
-      appendSystemEvent(session, SystemEventType.PSYCHIC_SIGNAL_RECEIVED, transitionAt,
-        SystemEventMetadataBuilders.psychicSignalReceived());
+      // Imitator (#89): SILENCE the target across all channels for the next
+      // Day Cycle, and JAM the imitator's own PMs (they may chat publicly but
+      // not send DMs — design-doc constraint). Display-name aliasing is
+      // deferred — adding ALIASED requires extending RestrictionType and the
+      // message pipeline; tracked as follow-up.
+      applyRestriction(
+        session,
+        RestrictionBuilders.silenced(
+          target,
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
+      applyRestriction(
+        session,
+        RestrictionBuilders.jammed(
+          intent.playerId,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
     }
   }
 

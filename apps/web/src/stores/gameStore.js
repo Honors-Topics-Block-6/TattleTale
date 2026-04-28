@@ -47,6 +47,17 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Hacker comm-role slices (#86–#89). Single pending selection per role —
+  // each role only sees its own panel.
+  jammerNightView: null,
+  pendingJammerSelection: null,
+  eavesdropperNightView: null,
+  pendingEavesdropperSelection: null,
+  trollerNightView: null,
+  pendingTrollerSelection: null,
+  imitatorNightView: null,
+  pendingImitatorSelection: null,
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -212,6 +223,40 @@ const useGameStore = create(
         state.pendingProtectSelection = null;
       }),
 
+    // --- Hacker comm-role actions (#86–#89) ---
+
+    selectJammerTarget: (id) =>
+      set((state) => {
+        if (state.jammerNightView?.confirmedTarget) return;
+        state.pendingJammerSelection = id;
+      }),
+    clearJammerSelection: () =>
+      set((state) => { state.pendingJammerSelection = null; }),
+
+    selectEavesdropperTarget: (id) =>
+      set((state) => {
+        if (state.eavesdropperNightView?.confirmedTarget) return;
+        state.pendingEavesdropperSelection = id;
+      }),
+    clearEavesdropperSelection: () =>
+      set((state) => { state.pendingEavesdropperSelection = null; }),
+
+    selectTrollerTarget: (id) =>
+      set((state) => {
+        if (state.trollerNightView?.confirmedTarget) return;
+        state.pendingTrollerSelection = id;
+      }),
+    clearTrollerSelection: () =>
+      set((state) => { state.pendingTrollerSelection = null; }),
+
+    selectImitatorTarget: (id) =>
+      set((state) => {
+        if (state.imitatorNightView?.confirmedTarget) return;
+        state.pendingImitatorSelection = id;
+      }),
+    clearImitatorSelection: () =>
+      set((state) => { state.pendingImitatorSelection = null; }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -343,12 +388,20 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.jammerNightView = view.jammerNightView ?? null;
+        state.eavesdropperNightView = view.eavesdropperNightView ?? null;
+        state.trollerNightView = view.trollerNightView ?? null;
+        state.imitatorNightView = view.imitatorNightView ?? null;
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingJammerSelection = null;
+          state.pendingEavesdropperSelection = null;
+          state.pendingTrollerSelection = null;
+          state.pendingImitatorSelection = null;
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -402,6 +455,17 @@ export function selectIsSecuritySpecialist(state) {
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }
+
+function selectIsRole(state, roleId) {
+  if (state.selfRole !== roleId) return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export const selectIsSignalJammer = (state) => selectIsRole(state, 'SIGNAL_JAMMER');
+export const selectIsEavesdropper = (state) => selectIsRole(state, 'EAVESDROPPER');
+export const selectIsTroller = (state) => selectIsRole(state, 'TROLLER');
+export const selectIsImitator = (state) => selectIsRole(state, 'IMITATOR');
 
 export function selectInvestigateCandidates(state) {
   if (!state.players) return [];

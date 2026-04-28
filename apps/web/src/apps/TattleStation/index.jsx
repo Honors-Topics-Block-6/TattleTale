@@ -1,4 +1,4 @@
-import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist } from '../../stores/gameStore';
+import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist, selectIsSignalJammer, selectIsEavesdropper, selectIsTroller, selectIsImitator } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
 import ChannelSidebar from './ChannelSidebar';
@@ -7,6 +7,7 @@ import VotePanel from './VotePanel';
 import NightPanel from './NightPanel';
 import InvestigatePanel from './InvestigatePanel';
 import ProtectPanel from './ProtectPanel';
+import HackerCommPanel from './HackerCommPanel';
 import NightSpectatorView from './NightSpectatorView';
 import SystemEventFeed from './SystemEventFeed';
 
@@ -18,6 +19,10 @@ function TattleStationComponent() {
   const isHacker = useGameStore(selectIsHacker);
   const isWhiteHatHacker = useGameStore(selectIsWhiteHatHacker);
   const isSecuritySpecialist = useGameStore(selectIsSecuritySpecialist);
+  const isSignalJammer = useGameStore(selectIsSignalJammer);
+  const isEavesdropper = useGameStore(selectIsEavesdropper);
+  const isTroller = useGameStore(selectIsTroller);
+  const isImitator = useGameStore(selectIsImitator);
 
   const showVotePanel = phase === 'DAY_VOTE' && selfAlive;
   const showNightUi = phase === 'NIGHT_ACTIONS' && selfAlive;
@@ -29,6 +34,13 @@ function TattleStationComponent() {
   const centerPanel = (() => {
     if (showVotePanel) return <VotePanel />;
     if (showNightUi) {
+      // Hacker comm-roles are on Team.HACKERS but submit their own actions
+      // rather than HACKER_KILL — route them to their ability panel before
+      // the generic isHacker (NightPanel/kill-voting) branch.
+      if (isSignalJammer) return <HackerCommPanel role="SIGNAL_JAMMER" />;
+      if (isEavesdropper) return <HackerCommPanel role="EAVESDROPPER" />;
+      if (isTroller) return <HackerCommPanel role="TROLLER" />;
+      if (isImitator) return <HackerCommPanel role="IMITATOR" />;
       if (isHacker) return <NightPanel />;
       if (isWhiteHatHacker) return <InvestigatePanel />;
       if (isSecuritySpecialist) return <ProtectPanel />;

@@ -159,6 +159,19 @@ export interface ProtectNightView {
   confirmedTarget: string | null;
 }
 
+/**
+ * Generic single-target Hacker night-action view (#86–#89).
+ * Used by Signal Jammer (JAM), Eavesdropper (MONITOR), Troller (MISDIRECT),
+ * and Imitator (IMITATE). Each role only ever submits its own action type;
+ * the panel's role-specific copy is rendered client-side. Per-role views are
+ * kept distinct on `PlayerSessionView` so future role-specific surface area
+ * (extra fields, channel scopes, etc.) can grow independently.
+ */
+export interface HackerRoleNightView {
+  /** Viewer's own confirmed target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
 export interface PlayerSessionView {
   gameId: string;
   lobbyCode: string;
@@ -188,6 +201,26 @@ export interface PlayerSessionView {
    * clients render ProtectPanel iff this is non-null.
    */
   protectNightView: ProtectNightView | null;
+  /**
+   * Signal Jammer (#86) night state. Non-null iff viewer is a living
+   * SIGNAL_JAMMER AND phase is NIGHT_ACTIONS.
+   */
+  jammerNightView: HackerRoleNightView | null;
+  /**
+   * Eavesdropper (#87) night state. Non-null iff viewer is a living
+   * EAVESDROPPER AND phase is NIGHT_ACTIONS.
+   */
+  eavesdropperNightView: HackerRoleNightView | null;
+  /**
+   * Troller (#88) night state. Non-null iff viewer is a living
+   * TROLLER AND phase is NIGHT_ACTIONS.
+   */
+  trollerNightView: HackerRoleNightView | null;
+  /**
+   * Imitator (#89) night state. Non-null iff viewer is a living
+   * IMITATOR AND phase is NIGHT_ACTIONS.
+   */
+  imitatorNightView: HackerRoleNightView | null;
   /**
    * Active communication restrictions affecting this viewer. Covert
    * restrictions (MONITORED) are always omitted. Populated by the
