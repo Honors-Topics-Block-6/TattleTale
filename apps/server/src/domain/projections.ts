@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -155,6 +155,68 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     protectNightView = { confirmedTarget };
   }
 
+  // Firewall-scoped night fields (#84). Non-null iff viewer is a living
+  // FIREWALL AND phase is NIGHT_ACTIONS. Surfaces the channel options the
+  // Firewall may lock (excluding SYSTEM, HACKER) and the once-per-game flag.
+  let firewallNightView: FirewallNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.FIREWALL
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    const candidates: FirewallChannelOption[] = Object.values(session.channels)
+      .filter((ch) =>
+        ch.members.includes(playerId)
+        && ch.type !== ChannelType.SYSTEM
+        && ch.type !== ChannelType.HACKER
+        && !ch.locked,
+      )
+      .map((ch) => {
+        let label: string | null = null;
+        if (ch.type === ChannelType.PRIVATE) {
+          const otherId = ch.members.find((id) => id !== playerId) ?? null;
+          label = otherId !== null ? (session.players[otherId]?.displayName ?? null) : null;
+        }
+        return { channelId: ch.id, type: ch.type, label };
+      });
+    let confirmedTargetChannelId: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.CHANNEL_LOCK) continue;
+      confirmedTargetChannelId = payload.targetChannelId ?? payload.targetPlayerId ?? null;
+    }
+    firewallNightView = {
+      candidates,
+      confirmedTargetChannelId,
+      used: !!player.firewallUsed,
+    };
+  }
+
+  // Vengeful-scoped night fields (#83). Non-null iff viewer is a living
+  // VENGEFUL AND phase is NIGHT_ACTIONS. The Vengeful pre-submits a spite
+  // target that fires only if they are eliminated by the hacker kill that
+  // night (see runtime-domain.ts vengefulIntent handling).
+  let vengefulNightView: VengefulNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.VENGEFUL
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    let confirmedTarget: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.VENGEFUL_KILL) continue;
+      confirmedTarget = payload.targetPlayerId ?? null;
+    }
+    vengefulNightView = { confirmedTarget };
+  }
+
   // Extrovert-scoped night fields. Mirrors protectNightView discriminator:
   // non-null iff viewer is a living EXTROVERT AND phase is NIGHT_ACTIONS.
   let extrovertNightView: ExtrovertNightView | null = null;
@@ -230,6 +292,8 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myTeammates,
     hackerNightView,
     protectNightView,
+    firewallNightView,
+    vengefulNightView,
     extrovertNightView,
     myRestrictions: projectRestrictions(
       session.restrictions ?? [],

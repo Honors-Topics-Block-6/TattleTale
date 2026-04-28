@@ -165,6 +165,27 @@ export interface ProtectNightView {
   confirmedTarget: string | null;
 }
 
+export interface FirewallChannelOption {
+  channelId: string;
+  type: ChannelType;
+  /** Pre-computed display label (mirrors ChannelView.label). */
+  label: string | null;
+}
+
+export interface FirewallNightView {
+  /** Channels the Firewall is allowed to lock. Filtered server-side to channels the Firewall is a member of, excluding SYSTEM and HACKER, and excluding already-locked channels. */
+  candidates: FirewallChannelOption[];
+  /** Viewer's own confirmed CHANNEL_LOCK target for the current cycle, if submitted. */
+  confirmedTargetChannelId: string | null;
+  /** True iff the Firewall has already used their once-per-game lock. */
+  used: boolean;
+}
+
+export interface VengefulNightView {
+  /** Viewer's own confirmed VENGEFUL_KILL spite target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
 export interface ExtrovertNightView {
   /** Viewer's own confirmed CREATE_TEMP_CHAT invitee list for the current cycle, if submitted. */
   confirmedTargetIds: string[] | null;
@@ -199,6 +220,21 @@ export interface PlayerSessionView {
    * clients render ProtectPanel iff this is non-null.
    */
   protectNightView: ProtectNightView | null;
+  /**
+   * Firewall-only night state. Non-null iff viewer is a living FIREWALL AND
+   * phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * FirewallPanel iff this is non-null.
+   */
+  firewallNightView: FirewallNightView | null;
+  /**
+   * Vengeful-only night state. Non-null iff viewer is a living VENGEFUL AND
+   * phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * VengeancePanel iff this is non-null. The Vengeful pre-submits a spite
+   * target during NIGHT_ACTIONS; if they are eliminated by the hacker kill
+   * that night, the target is killed alongside them. See runtime-domain.ts
+   * resolveNightActions for the post-elimination follow-on.
+   */
+  vengefulNightView: VengefulNightView | null;
   /**
    * Extrovert-only night state. Non-null iff viewer is a living EXTROVERT
    * AND phase is NIGHT_ACTIONS. Single discriminator — clients render

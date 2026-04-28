@@ -283,6 +283,129 @@ describe('toPlayerSessionView', () => {
     });
   });
 
+  describe('firewallNightView discriminator (#84)', () => {
+    function makeFirewallState(overrides?: Partial<GameState>): GameState {
+      return {
+        gameId: 'game-1',
+        lobbyCode: 'ABC123',
+        status: SessionStatus.ACTIVE,
+        winnerTeam: null,
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: 1,
+        players: {
+          p1: { playerId: 'p1', displayName: 'Fw', alive: true, connected: true, roleId: RoleId.FIREWALL, team: Team.FRIENDS, permissions: [] },
+          p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true, roleId: RoleId.FRIEND, team: Team.FRIENDS, permissions: [] },
+          p3: { playerId: 'p3', displayName: 'Carol', alive: true, connected: true, roleId: RoleId.HACKER, team: Team.HACKERS, permissions: [] },
+        },
+        channels: {
+          global: { id: 'global', type: ChannelType.GLOBAL, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+          hacker: { id: 'hacker', type: ChannelType.HACKER, members: ['p3'], locked: false, expiresAt: null },
+          system: { id: 'system', type: ChannelType.SYSTEM, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+        },
+        pendingIntents: [],
+        systemEvents: [],
+        timers: { currentPhaseEndsAt: null, currentPhaseDurationSeconds: 0 },
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it('exposes lockable candidates and excludes SYSTEM/HACKER channels', () => {
+      const view = toPlayerSessionView(makeFirewallState(), 'p1');
+      expect(view.firewallNightView).not.toBeNull();
+      const ids = view.firewallNightView!.candidates.map((c) => c.channelId).sort();
+      expect(ids).toEqual(['global']);
+      expect(view.firewallNightView!.used).toBe(false);
+      expect(view.firewallNightView!.confirmedTargetChannelId).toBeNull();
+    });
+
+    it('reports used=true once firewallUsed flag is set', () => {
+      const state = makeFirewallState();
+      state.players.p1.firewallUsed = true;
+      const view = toPlayerSessionView(state, 'p1');
+      expect(view.firewallNightView!.used).toBe(true);
+    });
+
+    it('surfaces confirmedTargetChannelId after submission', () => {
+      const state = makeFirewallState({
+        pendingIntents: [
+          {
+            id: 'i1', playerId: 'p1', type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', targetChannelId: 'global', metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: 1, createdAt: '',
+          },
+        ],
+      });
+      const view = toPlayerSessionView(state, 'p1');
+      expect(view.firewallNightView!.confirmedTargetChannelId).toBe('global');
+    });
+
+    it('null firewallNightView for non-Firewall roles, dead Firewall, or non-night phase', () => {
+      const state = makeFirewallState();
+      expect(toPlayerSessionView(state, 'p2').firewallNightView).toBeNull();
+      state.players.p1.alive = false;
+      expect(toPlayerSessionView(state, 'p1').firewallNightView).toBeNull();
+      const dayState = makeFirewallState({ phase: Phase.DAY_OPEN });
+      expect(toPlayerSessionView(dayState, 'p1').firewallNightView).toBeNull();
+    });
+  });
+
+  describe('vengefulNightView discriminator (#83)', () => {
+    function makeVengefulState(overrides?: Partial<GameState>): GameState {
+      return {
+        gameId: 'game-1',
+        lobbyCode: 'ABC123',
+        status: SessionStatus.ACTIVE,
+        winnerTeam: null,
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: 1,
+        players: {
+          p1: { playerId: 'p1', displayName: 'Vg', alive: true, connected: true, roleId: RoleId.VENGEFUL, team: Team.FRIENDS, permissions: [] },
+          p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true, roleId: RoleId.FRIEND, team: Team.FRIENDS, permissions: [] },
+          p3: { playerId: 'p3', displayName: 'Carol', alive: true, connected: true, roleId: RoleId.HACKER, team: Team.HACKERS, permissions: [] },
+        },
+        channels: {
+          global: { id: 'global', type: ChannelType.GLOBAL, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+        },
+        pendingIntents: [],
+        systemEvents: [],
+        timers: { currentPhaseEndsAt: null, currentPhaseDurationSeconds: 0 },
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it('non-null vengefulNightView for living Vengeful during NIGHT_ACTIONS', () => {
+      const view = toPlayerSessionView(makeVengefulState(), 'p1');
+      expect(view.vengefulNightView).toEqual({ confirmedTarget: null });
+    });
+
+    it('surfaces confirmedTarget after submission', () => {
+      const state = makeVengefulState({
+        pendingIntents: [
+          {
+            id: 'i1', playerId: 'p1', type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.VENGEFUL_KILL, targetPlayerId: 'p3', metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: 1, createdAt: '',
+          },
+        ],
+      });
+      const view = toPlayerSessionView(state, 'p1');
+      expect(view.vengefulNightView!.confirmedTarget).toBe('p3');
+    });
+
+    it('null vengefulNightView for non-Vengeful, dead Vengeful, or non-night phase', () => {
+      const state = makeVengefulState();
+      expect(toPlayerSessionView(state, 'p2').vengefulNightView).toBeNull();
+      state.players.p1.alive = false;
+      expect(toPlayerSessionView(state, 'p1').vengefulNightView).toBeNull();
+      const dayState = makeVengefulState({ phase: Phase.DAY_OPEN });
+      expect(toPlayerSessionView(dayState, 'p1').vengefulNightView).toBeNull();
+    });
+  });
+
   describe('PRIVATE channel label projection', () => {
     function makeGameStateWithDM(): GameState {
       return {

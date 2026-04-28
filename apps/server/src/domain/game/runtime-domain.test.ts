@@ -936,6 +936,47 @@ describe('runtime-domain', () => {
       expect(lockRestriction?.expiresAt).toBe(Phase.DAY_RESOLVE);
     });
 
+    it('FIREWALL CHANNEL_LOCK is once-per-game — second submission is dropped and second channel stays unlocked (#84)', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+      session.players[f1].roleId = RoleId.FIREWALL;
+      // Add a second lockable channel so the second attempt has a distinct target.
+      session.channels.aux = {
+        id: 'aux',
+        type: ChannelType.GLOBAL,
+        members: Object.keys(session.players),
+        locked: false,
+        expiresAt: null,
+      };
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.channels.global.locked).toBe(true);
+      expect(session.players[f1].firewallUsed).toBe(true);
+
+      // Pump phases until back to NIGHT_ACTIONS, then attempt a second lock.
+      let now = Date.parse('2026-03-17T00:01:00.000Z');
+      for (let i = 0; i < 20; i++) {
+        if (session.phase === Phase.NIGHT_ACTIONS && session.cycle > 0) break;
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        now += 10 * 60 * 1000;
+      }
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'aux', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: new Date(now + 1000).toISOString(),
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now + 60_000).toISOString());
+
+      expect(session.channels.aux.locked).toBe(false);
+    });
+
     it('CHANNEL_LOCK expires at end of Day Cycle — channel reopens when transitioning out of DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1] = friendIds(session);

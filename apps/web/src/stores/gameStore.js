@@ -47,6 +47,14 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Firewall slice
+  firewallNightView: null,
+  pendingFirewallSelection: null,
+
+  // Vengeful slice
+  vengefulNightView: null,
+  pendingVengefulSelection: null,
+
   // Extrovert slice
   extrovertNightView: null,
   pendingExtrovertSelections: [],
@@ -216,6 +224,33 @@ const useGameStore = create(
         state.pendingProtectSelection = null;
       }),
 
+    // --- Firewall actions ---
+
+    selectFirewallTarget: (channelId) =>
+      set((state) => {
+        if (state.firewallNightView?.confirmedTargetChannelId) return;
+        if (state.firewallNightView?.used) return;
+        state.pendingFirewallSelection = channelId;
+      }),
+
+    clearFirewallSelection: () =>
+      set((state) => {
+        state.pendingFirewallSelection = null;
+      }),
+
+    // --- Vengeful actions ---
+
+    selectVengefulTarget: (id) =>
+      set((state) => {
+        if (state.vengefulNightView?.confirmedTarget) return;
+        state.pendingVengefulSelection = id;
+      }),
+
+    clearVengefulSelection: () =>
+      set((state) => {
+        state.pendingVengefulSelection = null;
+      }),
+
     // --- Extrovert actions ---
 
     toggleExtrovertTarget: (id) =>
@@ -364,9 +399,18 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.firewallNightView = view.firewallNightView ?? null;
+        state.vengefulNightView = view.vengefulNightView ?? null;
         state.extrovertNightView = view.extrovertNightView ?? null;
-        // Clear pending Extrovert selections once the server has acknowledged
-        // the submission, so the UI reads exclusively from confirmedTargetIds.
+        // Clear pending selections once the server has acknowledged each
+        // submission, so panels read exclusively from confirmed* fields and
+        // don't show pending + confirmed indicators simultaneously.
+        if (view.firewallNightView?.confirmedTargetChannelId != null) {
+          state.pendingFirewallSelection = null;
+        }
+        if (view.vengefulNightView?.confirmedTarget != null) {
+          state.pendingVengefulSelection = null;
+        }
         if (view.extrovertNightView?.confirmedTargetIds != null) {
           state.pendingExtrovertSelections = [];
         }
@@ -376,6 +420,8 @@ const useGameStore = create(
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingFirewallSelection = null;
+          state.pendingVengefulSelection = null;
           state.pendingExtrovertSelections = [];
         }
         // Defense-in-depth: if the viewer's role was swapped away from
@@ -394,6 +440,12 @@ const useGameStore = create(
           view.myRole !== 'SECURITY_SPECIALIST'
         ) {
           state.pendingProtectSelection = null;
+        }
+        if (previousSelfRole === 'FIREWALL' && view.myRole !== 'FIREWALL') {
+          state.pendingFirewallSelection = null;
+        }
+        if (previousSelfRole === 'VENGEFUL' && view.myRole !== 'VENGEFUL') {
+          state.pendingVengefulSelection = null;
         }
         if (
           previousSelfRole === 'EXTROVERT' &&
@@ -433,6 +485,18 @@ export function selectIsWhiteHatHacker(state) {
 
 export function selectIsSecuritySpecialist(state) {
   if (state.selfRole !== 'SECURITY_SPECIALIST') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsFirewall(state) {
+  if (state.selfRole !== 'FIREWALL') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsVengeful(state) {
+  if (state.selfRole !== 'VENGEFUL') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }
