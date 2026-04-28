@@ -48,6 +48,8 @@ export interface VoteIntentPayload {
 export interface NightActionIntentPayload {
   actionType: string;
   targetPlayerId?: string | null;
+  /** Multi-target list. Currently only consumed by CREATE_TEMP_CHAT (Extrovert). */
+  targetPlayerIds?: string[] | null;
   metadata?: Record<string, unknown>;
 }
 

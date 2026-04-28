@@ -55,6 +55,10 @@ const initialState = {
   vengefulNightView: null,
   pendingVengefulSelection: null,
 
+  // Extrovert slice
+  extrovertNightView: null,
+  pendingExtrovertSelections: [],
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -247,6 +251,23 @@ const useGameStore = create(
         state.pendingVengefulSelection = null;
       }),
 
+    // --- Extrovert actions ---
+
+    toggleExtrovertTarget: (id) =>
+      set((state) => {
+        if (state.extrovertNightView?.confirmedTargetIds) return;
+        const list = state.pendingExtrovertSelections ?? [];
+        const idx = list.indexOf(id);
+        if (idx === -1) list.push(id);
+        else list.splice(idx, 1);
+        state.pendingExtrovertSelections = list;
+      }),
+
+    clearExtrovertSelections: () =>
+      set((state) => {
+        state.pendingExtrovertSelections = [];
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -380,6 +401,12 @@ const useGameStore = create(
         state.protectNightView = view.protectNightView ?? null;
         state.firewallNightView = view.firewallNightView ?? null;
         state.vengefulNightView = view.vengefulNightView ?? null;
+        state.extrovertNightView = view.extrovertNightView ?? null;
+        // Clear pending Extrovert selections once the server has acknowledged
+        // the submission, so the UI reads exclusively from confirmedTargetIds.
+        if (view.extrovertNightView?.confirmedTargetIds != null) {
+          state.pendingExtrovertSelections = [];
+        }
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
@@ -388,6 +415,7 @@ const useGameStore = create(
           state.pendingProtectSelection = null;
           state.pendingFirewallSelection = null;
           state.pendingVengefulSelection = null;
+          state.pendingExtrovertSelections = [];
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -411,6 +439,12 @@ const useGameStore = create(
         }
         if (previousSelfRole === 'VENGEFUL' && view.myRole !== 'VENGEFUL') {
           state.pendingVengefulSelection = null;
+        }
+        if (
+          previousSelfRole === 'EXTROVERT' &&
+          view.myRole !== 'EXTROVERT'
+        ) {
+          state.pendingExtrovertSelections = [];
         }
 
         // Session slice
@@ -456,6 +490,12 @@ export function selectIsFirewall(state) {
 
 export function selectIsVengeful(state) {
   if (state.selfRole !== 'VENGEFUL') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsExtrovert(state) {
+  if (state.selfRole !== 'EXTROVERT') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }

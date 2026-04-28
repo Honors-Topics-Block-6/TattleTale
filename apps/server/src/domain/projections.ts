@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ViewerRestriction } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -124,7 +124,14 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
         if (intent.playerId === playerId) confirmedTarget = target;
       }
 
-      hackerNightView = { tally, confirmedTarget };
+      // Surface the living Boss's player id (if any) so Hackers know whose
+      // selection will override plurality (#85). Null if no Boss is alive.
+      const livingBoss = Object.values(session.players).find(
+        (p) => p.alive && p.team === Team.HACKERS && p.roleId === RoleId.THE_BOSS,
+      );
+      const bossPlayerId = livingBoss?.playerId ?? null;
+
+      hackerNightView = { tally, confirmedTarget, bossPlayerId };
     }
   }
 
@@ -210,6 +217,27 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     vengefulNightView = { confirmedTarget };
   }
 
+  // Extrovert-scoped night fields. Mirrors protectNightView discriminator:
+  // non-null iff viewer is a living EXTROVERT AND phase is NIGHT_ACTIONS.
+  let extrovertNightView: ExtrovertNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.EXTROVERT
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    let confirmedTargetIds: string[] | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.CREATE_TEMP_CHAT) continue;
+      confirmedTargetIds = payload.targetPlayerIds
+        ?? (payload.targetPlayerId ? [payload.targetPlayerId] : []);
+    }
+    extrovertNightView = { confirmedTargetIds };
+  }
+
   return {
     gameId: session.gameId,
     lobbyCode: session.lobbyCode,
@@ -266,6 +294,7 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     protectNightView,
     firewallNightView,
     vengefulNightView,
+    extrovertNightView,
     myRestrictions: projectRestrictions(
       session.restrictions ?? [],
       playerId,

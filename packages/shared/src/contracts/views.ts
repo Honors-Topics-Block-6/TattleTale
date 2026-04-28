@@ -152,6 +152,12 @@ export interface HackerNightView {
   tally: Record<string, number>;
   /** Viewer's own confirmed HACKER_KILL target for the current cycle, if submitted. */
   confirmedTarget: string | null;
+  /**
+   * Player id of the living THE_BOSS, if any. The Boss's submitted target overrides
+   * plurality voting (see runtime-domain.ts resolveHackerKillTarget). Visible only to
+   * the Hacker team so other Hackers know whose vote will decide the kill.
+   */
+  bossPlayerId: string | null;
 }
 
 export interface ProtectNightView {
@@ -178,6 +184,11 @@ export interface FirewallNightView {
 export interface VengefulNightView {
   /** Viewer's own confirmed VENGEFUL_KILL spite target for the current cycle, if submitted. */
   confirmedTarget: string | null;
+}
+
+export interface ExtrovertNightView {
+  /** Viewer's own confirmed CREATE_TEMP_CHAT invitee list for the current cycle, if submitted. */
+  confirmedTargetIds: string[] | null;
 }
 
 export interface PlayerSessionView {
@@ -224,6 +235,12 @@ export interface PlayerSessionView {
    * resolveNightActions for the post-elimination follow-on.
    */
   vengefulNightView: VengefulNightView | null;
+  /**
+   * Extrovert-only night state. Non-null iff viewer is a living EXTROVERT
+   * AND phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * InvitePanel iff this is non-null.
+   */
+  extrovertNightView: ExtrovertNightView | null;
   /**
    * Active communication restrictions affecting this viewer. Covert
    * restrictions (MONITORED) are always omitted. Populated by the

@@ -196,9 +196,11 @@ function validateNightActionTarget(
       return { valid: true };
     }
     case NightActionType.CREATE_TEMP_CHAT: {
-      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
-      const target = session.players[targetId];
-      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      // Validation lives in the SUBMIT_NIGHT_ACTION branch (multi-target via
+      // targetPlayerIds). This switch arm never sees CREATE_TEMP_CHAT — kept
+      // as a defensive no-op so the switch is exhaustive.
+      void actor;
+      void targetId;
       return { valid: true };
     }
     case NightActionType.CHANNEL_LOCK: {
@@ -904,15 +906,37 @@ export async function handleSubmitIntent(
       }
 
       // Per-action-type target validation.
-      // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
-      // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
-      // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
-      const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
-        ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
-        : nightPayload.targetPlayerId;
-      const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
-      if (!targetValidation.valid) {
-        return fail('INVALID_TARGET', targetValidation.reason);
+      // CREATE_TEMP_CHAT (Extrovert, #81): validates a multi-target list inline rather
+      // than via validateNightActionTarget, which is single-target only.
+      if (actionType === NightActionType.CREATE_TEMP_CHAT) {
+        const ids = Array.isArray(nightPayload.targetPlayerIds)
+          ? nightPayload.targetPlayerIds
+          : (nightPayload.targetPlayerId ? [nightPayload.targetPlayerId] : []);
+        if (!ids.length) {
+          return fail('INVALID_TARGET', 'CREATE_TEMP_CHAT requires at least one invitee.');
+        }
+        const seen = new Set<string>();
+        for (const id of ids) {
+          if (typeof id !== 'string' || !id || id === actorId || seen.has(id)) {
+            return fail('INVALID_TARGET', 'Invitees must be distinct living players other than yourself.');
+          }
+          seen.add(id);
+          const target = session.players[id];
+          if (!target || !target.alive) {
+            return fail('INVALID_TARGET', 'Invitees must be living players.');
+          }
+        }
+      } else {
+        // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
+        // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
+        // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
+        const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
+          ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
+          : nightPayload.targetPlayerId;
+        const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
+        if (!targetValidation.valid) {
+          return fail('INVALID_TARGET', targetValidation.reason);
+        }
       }
     }
 
