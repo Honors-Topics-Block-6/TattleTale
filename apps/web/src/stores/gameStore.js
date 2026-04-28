@@ -402,8 +402,15 @@ const useGameStore = create(
         state.firewallNightView = view.firewallNightView ?? null;
         state.vengefulNightView = view.vengefulNightView ?? null;
         state.extrovertNightView = view.extrovertNightView ?? null;
-        // Clear pending Extrovert selections once the server has acknowledged
-        // the submission, so the UI reads exclusively from confirmedTargetIds.
+        // Clear pending selections once the server has acknowledged each
+        // submission, so panels read exclusively from confirmed* fields and
+        // don't show pending + confirmed indicators simultaneously.
+        if (view.firewallNightView?.confirmedTargetChannelId != null) {
+          state.pendingFirewallSelection = null;
+        }
+        if (view.vengefulNightView?.confirmedTarget != null) {
+          state.pendingVengefulSelection = null;
+        }
         if (view.extrovertNightView?.confirmedTargetIds != null) {
           state.pendingExtrovertSelections = [];
         }

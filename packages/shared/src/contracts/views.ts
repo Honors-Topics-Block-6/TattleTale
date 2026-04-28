@@ -173,7 +173,7 @@ export interface FirewallChannelOption {
 }
 
 export interface FirewallNightView {
-  /** Channels the Firewall is allowed to lock (excludes SYSTEM, HACKER, ROLE, GLOBAL is included). */
+  /** Channels the Firewall is allowed to lock. Filtered server-side to channels the Firewall is a member of, excluding SYSTEM and HACKER, and excluding already-locked channels. */
   candidates: FirewallChannelOption[];
   /** Viewer's own confirmed CHANNEL_LOCK target for the current cycle, if submitted. */
   confirmedTargetChannelId: string | null;
