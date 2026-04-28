@@ -168,6 +168,23 @@ describe('runtime-domain', () => {
     expect(Object.values(session.players).every((player) => player.alive)).toBe(true);
   });
 
+  it('NEUTRAL survivors are recorded on game end and excluded from team-vs-team count (#90)', () => {
+    const lobby = buildLobby(7);
+    const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
+    initializeSessionRuntime(session, lobby.settings, '2026-03-17T00:00:00.000Z', () => 0.99);
+    // Force teams: 1 hacker, 1 neutral (Jealous), rest friends.
+    for (const player of Object.values(session.players)) player.team = Team.FRIENDS;
+    session.players.p1.team = Team.HACKERS;
+    session.players.p2.team = Team.NEUTRAL;
+    session.players.p2.roleId = RoleId.JEALOUS;
+
+    // Eliminate the lone hacker → FRIENDS_WIN. Jealous is alive → in neutralWinners.
+    const events = processElimination(session, lobby, 'p1', '2026-03-17T00:00:10.000Z', 'DAY_VOTE');
+    expect(events.some((e) => e.type === 'GAME_ENDED')).toBe(true);
+    expect(session.status).toBe(SessionStatus.FRIENDS_WIN);
+    expect(session.neutralWinners).toEqual(['p2']);
+  });
+
   it('applies friend and hacker win checks after elimination', () => {
     const lobby = buildLobby(7);
     const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
@@ -788,6 +805,55 @@ describe('runtime-domain', () => {
       expect(tempChannels[0].locked).toBe(false);
       const ev = session.systemEvents.find((e) => e.type === SystemEventType.TEMP_CHANNEL_CREATED);
       expect(ev).toBeDefined();
+    });
+
+    it('Tier 5 SWAP_ROLE — Jealous adopts target role and stays NEUTRAL; target becomes their team base role (#90)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+      // Set up a Jealous on Team.NEUTRAL targeting a Hacker.
+      session.players[f1].team = Team.NEUTRAL;
+      session.players[f1].roleId = RoleId.JEALOUS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.SWAP_ROLE, targetPlayerId: h1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      // Jealous now holds THE_BOSS but team is unchanged (NEUTRAL).
+      expect(session.players[f1].roleId).toBe(RoleId.THE_BOSS);
+      expect(session.players[f1].team).toBe(Team.NEUTRAL);
+      expect(session.players[f1].jealousUsed).toBe(true);
+      // Target becomes their team's base role; team unchanged.
+      expect(session.players[h1].roleId).toBe(RoleId.HACKER);
+      expect(session.players[h1].team).toBe(Team.HACKERS);
+      // Both swap participants got a private ROLE_CHANGED event.
+      expect(session.privateSystemEvents?.[f1]?.some((e) => e.type === SystemEventType.ROLE_CHANGED)).toBe(true);
+      expect(session.privateSystemEvents?.[h1]?.some((e) => e.type === SystemEventType.ROLE_CHANGED)).toBe(true);
+    });
+
+    it('SWAP_ROLE is once-per-game — second submission has no effect (#90)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1] = friendIds(session);
+      session.players[f1].team = Team.NEUTRAL;
+      session.players[f1].roleId = RoleId.JEALOUS;
+      session.players[f1].jealousUsed = true; // Already used.
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.SWAP_ROLE, targetPlayerId: h1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      const beforeRole = session.players[h1].roleId;
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.players[f1].roleId).toBe(RoleId.JEALOUS);
+      expect(session.players[h1].roleId).toBe(beforeRole);
+      void h2;
     });
 
     it('Tier 5 CHANNEL_LOCK sets locked=true and appends a LOCKED restriction expiring at DAY_RESOLVE', () => {

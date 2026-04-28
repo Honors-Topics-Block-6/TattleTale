@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type ViewerRestriction } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, SessionStatus, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type JealousNightView, type ViewerRestriction } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -148,6 +148,32 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     protectNightView = { confirmedTarget };
   }
 
+  // Jealous (#90). Non-null iff viewer is a living JEALOUS during NIGHT_ACTIONS.
+  let jealousNightView: JealousNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.JEALOUS
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    let confirmedTarget: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.SWAP_ROLE) continue;
+      confirmedTarget = payload.targetPlayerId ?? null;
+    }
+    jealousNightView = { confirmedTarget, used: !!player.jealousUsed };
+  }
+
+  // Neutral winners surfaces only after game end. Mirrors the simple
+  // contract winnerTeam follows — null while ACTIVE, populated on flip.
+  const neutralWinners: string[] | null =
+    session.status === SessionStatus.ACTIVE
+      ? null
+      : (session.neutralWinners ?? []);
+
   return {
     gameId: session.gameId,
     lobbyCode: session.lobbyCode,
@@ -202,6 +228,8 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myTeammates,
     hackerNightView,
     protectNightView,
+    jealousNightView,
+    neutralWinners,
     myRestrictions: projectRestrictions(
       session.restrictions ?? [],
       playerId,

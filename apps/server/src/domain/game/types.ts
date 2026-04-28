@@ -18,6 +18,12 @@ export interface PlayerState {
   roleId: string | null;
   team: Team;
   permissions: string[];
+  /**
+   * Once-per-game flag for The Jealous (#90) SWAP_ROLE. Set on first
+   * successful swap; subsequent SWAP_ROLE intents are dropped at the
+   * resolver and rejected at the validator. Optional for backward compat.
+   */
+  jealousUsed?: boolean;
 }
 
 export interface ChannelState {
@@ -144,6 +150,14 @@ export interface GameState {
    * `undefined` as `[]` and writers should lazy-init before appending.
    */
   restrictions?: Restriction[];
+  /**
+   * Player ids of NEUTRAL-team survivors at game end. Populated by
+   * applyWinState when status flips to FRIENDS_WIN or HACKERS_WIN.
+   * Neutral roles (#90 The Jealous) win independently — they survive to the
+   * end regardless of which team wins. Always present (empty array if no
+   * neutrals are alive at game end). Optional for backward compat.
+   */
+  neutralWinners?: string[];
   timers: GameTimersState;
   createdAt: string;
   updatedAt: string;

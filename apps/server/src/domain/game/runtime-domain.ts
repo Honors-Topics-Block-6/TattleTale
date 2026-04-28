@@ -114,6 +114,7 @@ export function initializeSessionRuntime(
 ): void {
   assignTeams(session, random);
   assignRoles(session, settings.enabledRoles ?? [], random);
+  assignNeutralRoles(session, settings.enabledRoles ?? [], random);
 
   // Populate hacker channel with assigned Team.HACKERS players.
   if (session.channels.hacker) {
@@ -459,8 +460,38 @@ export function resolveNightActions(
         transitionAt,
         SystemEventMetadataBuilders.channelLocked(channelId),
       );
+    } else if (intent.payload.actionType === NightActionType.SWAP_ROLE) {
+      // The Jealous (#90): role-only swap — Jealous adopts target's roleId
+      // but stays on Team.NEUTRAL. Target becomes their original team's base
+      // role; team unchanged. Once-per-game gate via `jealousUsed`.
+      if (submitter.roleId !== RoleId.JEALOUS) continue;
+      if (submitter.jealousUsed) continue;
+      const targetId = intent.payload.targetPlayerId;
+      if (!targetId || targetId === intent.playerId) continue;
+      const targetPlayer = session.players[targetId];
+      if (!targetPlayer || !targetPlayer.alive) continue;
+      const previousJealousRole = submitter.roleId;
+      const previousTargetRole = targetPlayer.roleId;
+      const targetBaseRole =
+        targetPlayer.team === Team.HACKERS ? RoleId.HACKER : RoleId.FRIEND;
+      submitter.roleId = previousTargetRole;
+      targetPlayer.roleId = targetBaseRole;
+      submitter.jealousUsed = true;
+      appendPrivateSystemEvent(
+        session,
+        intent.playerId,
+        SystemEventType.ROLE_CHANGED,
+        transitionAt,
+        SystemEventMetadataBuilders.roleChanged(previousJealousRole, submitter.roleId ?? null),
+      );
+      appendPrivateSystemEvent(
+        session,
+        targetId,
+        SystemEventType.ROLE_CHANGED,
+        transitionAt,
+        SystemEventMetadataBuilders.roleChanged(previousTargetRole, targetPlayer.roleId),
+      );
     }
-    // SWAP_ROLE: requires role assignment to be meaningful. Deferred.
   }
 
   return events;
@@ -686,6 +717,39 @@ function assignRoles(
   }
 }
 
+/**
+ * Promote one base-role Friend into a NEUTRAL role (#90 The Jealous) if the
+ * neutral role is enabled and the player count meets minPlayers. Single
+ * neutral max — Jealous is unique. Picked from FRIENDs that hold the base
+ * Friend role so we don't displace special roles.
+ *
+ * Done as a post-pass after assignTeams + assignRoles to avoid restructuring
+ * the existing two-team allocation flow. If NEUTRAL gains more roles in the
+ * future this should be folded into a unified pool builder.
+ */
+function assignNeutralRoles(
+  session: GameState,
+  enabledRoles: string[],
+  random: () => number,
+): void {
+  const enabledSet = new Set(enabledRoles);
+  if (!enabledSet.has(RoleId.JEALOUS)) return;
+  const def = ROLE_DEFINITIONS.get(RoleId.JEALOUS);
+  if (!def) return;
+  const totalPlayers = Object.keys(session.players).length;
+  if (totalPlayers < def.minPlayers) return;
+
+  const candidates = Object.values(session.players)
+    .filter((p) => p.team === Team.FRIENDS && p.roleId === RoleId.FRIEND)
+    .map((p) => p.playerId);
+  if (candidates.length === 0) return;
+
+  const idx = Math.floor(random() * candidates.length);
+  const pick = session.players[candidates[idx]];
+  pick.team = Team.NEUTRAL;
+  pick.roleId = RoleId.JEALOUS;
+}
+
 function fisherYatesShuffle<T>(array: T[], random: () => number): void {
   for (let index = array.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(random() * (index + 1));
@@ -900,23 +964,30 @@ function applyWinState(
   }
 
   const alivePlayers = Object.values(session.players).filter((player) => player.alive);
-  const aliveCount = alivePlayers.length;
-  const hackersAlive = alivePlayers.filter((player) => player.team === Team.HACKERS).length;
+  // NEUTRAL players are excluded from the team-vs-team headcount so they
+  // neither block a Friend win nor count toward a Hacker plurality. They
+  // win independently if alive at game end (#90 The Jealous).
+  const teamPlayers = alivePlayers.filter((p) => p.team !== Team.NEUTRAL);
+  const teamCount = teamPlayers.length;
+  const hackersAlive = teamPlayers.filter((p) => p.team === Team.HACKERS).length;
+
+  const finishGame = (team: Team, status: SessionStatus): Team => {
+    session.status = status;
+    session.winnerTeam = team;
+    session.neutralWinners = alivePlayers
+      .filter((p) => p.team === Team.NEUTRAL)
+      .map((p) => p.playerId);
+    session.timers.currentPhaseEndsAt = null;
+    session.updatedAt = now;
+    return team;
+  };
 
   if (hackersAlive === 0) {
-    session.status = SessionStatus.FRIENDS_WIN;
-    session.winnerTeam = Team.FRIENDS;
-    session.timers.currentPhaseEndsAt = null;
-    session.updatedAt = now;
-    return Team.FRIENDS;
+    return finishGame(Team.FRIENDS, SessionStatus.FRIENDS_WIN);
   }
 
-  if (hackersAlive >= Math.ceil(aliveCount / 2)) {
-    session.status = SessionStatus.HACKERS_WIN;
-    session.winnerTeam = Team.HACKERS;
-    session.timers.currentPhaseEndsAt = null;
-    session.updatedAt = now;
-    return Team.HACKERS;
+  if (hackersAlive >= Math.ceil(teamCount / 2)) {
+    return finishGame(Team.HACKERS, SessionStatus.HACKERS_WIN);
   }
 
   return null;

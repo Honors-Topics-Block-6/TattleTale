@@ -47,6 +47,11 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Jealous slice (#90)
+  jealousNightView: null,
+  pendingJealousSelection: null,
+  neutralWinners: null,
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -212,6 +217,17 @@ const useGameStore = create(
         state.pendingProtectSelection = null;
       }),
 
+    // --- Jealous actions (#90) ---
+
+    selectJealousTarget: (id) =>
+      set((state) => {
+        if (state.jealousNightView?.confirmedTarget) return;
+        if (state.jealousNightView?.used) return;
+        state.pendingJealousSelection = id;
+      }),
+    clearJealousSelection: () =>
+      set((state) => { state.pendingJealousSelection = null; }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -343,12 +359,15 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.jealousNightView = view.jealousNightView ?? null;
+        state.neutralWinners = view.neutralWinners ?? null;
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingJealousSelection = null;
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -399,6 +418,12 @@ export function selectIsWhiteHatHacker(state) {
 
 export function selectIsSecuritySpecialist(state) {
   if (state.selfRole !== 'SECURITY_SPECIALIST') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsJealous(state) {
+  if (state.selfRole !== 'JEALOUS') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }

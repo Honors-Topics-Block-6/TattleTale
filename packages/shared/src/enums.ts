@@ -48,6 +48,8 @@ export enum SystemEventType {
   NO_KILL_TONIGHT = 'NO_KILL_TONIGHT',
   INVESTIGATION_RESULT = 'INVESTIGATION_RESULT',
   NIGHT_KILL_PROTECTED = 'NIGHT_KILL_PROTECTED',
+  /** Private — fires for both swap participants when The Jealous swaps roles. */
+  ROLE_CHANGED = 'ROLE_CHANGED',
 }
 
 /**
@@ -127,6 +129,13 @@ export enum LobbyStatus {
 export enum Team {
   FRIENDS = 'FRIENDS',
   HACKERS = 'HACKERS',
+  /**
+   * Neutral roles (#90 The Jealous) have their own win condition (survive to
+   * game end) and do not affect the FRIENDS_WIN / HACKERS_WIN evaluation.
+   * They are counted in `aliveCount` for plurality purposes but never
+   * factor into the team-vs-team win check.
+   */
+  NEUTRAL = 'NEUTRAL',
 }
 
 export enum SessionStatus {
@@ -148,4 +157,6 @@ export enum RoleId {
   EAVESDROPPER = 'EAVESDROPPER',
   TROLLER = 'TROLLER',
   IMITATOR = 'IMITATOR',
+  // Neutral
+  JEALOUS = 'JEALOUS',
 }
