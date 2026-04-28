@@ -435,20 +435,14 @@ export function resolveNightActions(
         SystemEventMetadataBuilders.tempChannelCreated(channelId),
       );
     } else if (intent.payload.actionType === NightActionType.CHANNEL_LOCK) {
-      // Prefer the dedicated targetChannelId field; fall back to targetPlayerId for backward
-      // compat with in-flight payloads submitted before clients migrated.
-      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId. Paired
-      // sites: ws-message-handler.ts ~L199 (validator) and ~L840 (resolvedTargetId).
+      // FIREWALL is once-per-game (#84). Defense-in-depth — validator also rejects.
+      if (submitter.roleId === RoleId.FIREWALL && submitter.firewallUsed) continue;
       const channelId = intent.payload.targetChannelId ?? intent.payload.targetPlayerId;
       if (!channelId) continue;
       const channel = session.channels[channelId];
       // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (!channel || channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) continue;
       if (channel.locked) continue;
-      // Route through the Communication Restriction Framework so the lock auto-expires at
-      // end of the next Day Cycle (#76 spec). `applyRestriction` re-derives the
-      // `channel.locked` mirror in the same operation, so projections and send-pipeline
-      // fast-paths keep reading the boolean without scanning `session.restrictions`.
       applyRestriction(
         session,
         RestrictionBuilders.locked(channelId, intent.playerId, Phase.DAY_RESOLVE, transitionAt),
@@ -459,6 +453,9 @@ export function resolveNightActions(
         transitionAt,
         SystemEventMetadataBuilders.channelLocked(channelId),
       );
+      if (submitter.roleId === RoleId.FIREWALL) {
+        submitter.firewallUsed = true;
+      }
     }
     // SWAP_ROLE: requires role assignment to be meaningful. Deferred.
   }

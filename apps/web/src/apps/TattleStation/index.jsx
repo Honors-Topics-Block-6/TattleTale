@@ -1,4 +1,4 @@
-import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist } from '../../stores/gameStore';
+import useGameStore, { selectIsHacker, selectIsWhiteHatHacker, selectIsSecuritySpecialist, selectIsFirewall, selectIsVengeful } from '../../stores/gameStore';
 import PhaseHeader from './PhaseHeader';
 import PlayerList from './PlayerList';
 import ChannelSidebar from './ChannelSidebar';
@@ -7,6 +7,8 @@ import VotePanel from './VotePanel';
 import NightPanel from './NightPanel';
 import InvestigatePanel from './InvestigatePanel';
 import ProtectPanel from './ProtectPanel';
+import FirewallPanel from './FirewallPanel';
+import VengeancePanel from './VengeancePanel';
 import NightSpectatorView from './NightSpectatorView';
 import SystemEventFeed from './SystemEventFeed';
 
@@ -18,6 +20,8 @@ function TattleStationComponent() {
   const isHacker = useGameStore(selectIsHacker);
   const isWhiteHatHacker = useGameStore(selectIsWhiteHatHacker);
   const isSecuritySpecialist = useGameStore(selectIsSecuritySpecialist);
+  const isFirewall = useGameStore(selectIsFirewall);
+  const isVengeful = useGameStore(selectIsVengeful);
 
   const showVotePanel = phase === 'DAY_VOTE' && selfAlive;
   const showNightUi = phase === 'NIGHT_ACTIONS' && selfAlive;
@@ -32,6 +36,8 @@ function TattleStationComponent() {
       if (isHacker) return <NightPanel />;
       if (isWhiteHatHacker) return <InvestigatePanel />;
       if (isSecuritySpecialist) return <ProtectPanel />;
+      if (isFirewall) return <FirewallPanel />;
+      if (isVengeful) return <VengeancePanel />;
       return <NightSpectatorView />;
     }
     if (showSystemEvents) return <SystemEventFeed events={systemEvents} />;

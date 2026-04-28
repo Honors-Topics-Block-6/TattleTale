@@ -47,6 +47,14 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Firewall slice
+  firewallNightView: null,
+  pendingFirewallSelection: null,
+
+  // Vengeful slice
+  vengefulNightView: null,
+  pendingVengefulSelection: null,
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -212,6 +220,33 @@ const useGameStore = create(
         state.pendingProtectSelection = null;
       }),
 
+    // --- Firewall actions ---
+
+    selectFirewallTarget: (channelId) =>
+      set((state) => {
+        if (state.firewallNightView?.confirmedTargetChannelId) return;
+        if (state.firewallNightView?.used) return;
+        state.pendingFirewallSelection = channelId;
+      }),
+
+    clearFirewallSelection: () =>
+      set((state) => {
+        state.pendingFirewallSelection = null;
+      }),
+
+    // --- Vengeful actions ---
+
+    selectVengefulTarget: (id) =>
+      set((state) => {
+        if (state.vengefulNightView?.confirmedTarget) return;
+        state.pendingVengefulSelection = id;
+      }),
+
+    clearVengefulSelection: () =>
+      set((state) => {
+        state.pendingVengefulSelection = null;
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -343,12 +378,16 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.firewallNightView = view.firewallNightView ?? null;
+        state.vengefulNightView = view.vengefulNightView ?? null;
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingFirewallSelection = null;
+          state.pendingVengefulSelection = null;
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -366,6 +405,12 @@ const useGameStore = create(
           view.myRole !== 'SECURITY_SPECIALIST'
         ) {
           state.pendingProtectSelection = null;
+        }
+        if (previousSelfRole === 'FIREWALL' && view.myRole !== 'FIREWALL') {
+          state.pendingFirewallSelection = null;
+        }
+        if (previousSelfRole === 'VENGEFUL' && view.myRole !== 'VENGEFUL') {
+          state.pendingVengefulSelection = null;
         }
 
         // Session slice
@@ -399,6 +444,18 @@ export function selectIsWhiteHatHacker(state) {
 
 export function selectIsSecuritySpecialist(state) {
   if (state.selfRole !== 'SECURITY_SPECIALIST') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsFirewall(state) {
+  if (state.selfRole !== 'FIREWALL') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsVengeful(state) {
+  if (state.selfRole !== 'VENGEFUL') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }

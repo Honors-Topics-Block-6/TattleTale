@@ -202,16 +202,16 @@ function validateNightActionTarget(
       return { valid: true };
     }
     case NightActionType.CHANNEL_LOCK: {
-      // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
-      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate.
-      // Paired sites that must be removed together: ws-message-handler.ts ~L840 (resolvedTargetId)
-      // and runtime-domain.ts ~L438 (CHANNEL_LOCK resolver).
       if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
       const channel = session.channels[targetId];
       if (!channel) return { valid: false, reason: 'Channel does not exist.' };
-      // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) {
         return { valid: false, reason: 'System and Hacker channels cannot be locked.' };
+      }
+      // FIREWALL once-per-game gate (#84). Other roles wired to CHANNEL_LOCK in the future
+      // would set their own gates — we key on roleId rather than blanket-rejecting.
+      if (actor?.roleId === 'FIREWALL' && actor.firewallUsed) {
+        return { valid: false, reason: 'Firewall ability already used this game.' };
       }
       return { valid: true };
     }
