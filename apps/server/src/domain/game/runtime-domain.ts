@@ -326,29 +326,89 @@ export function resolveNightActions(
           targetPlayer.team,
         ),
       );
+    } else if (intent.payload.actionType === NightActionType.MONITOR) {
+      // Eavesdropper (#87): covert MONITORED restriction on PRIVATE channels.
+      // Expires at the end of the next Day Cycle. Forwarding to the observer
+      // is handled at message-ingress time; the projection layer never
+      // surfaces MONITORED to the target (covert by design).
+      applyRestriction(
+        session,
+        RestrictionBuilders.monitored(
+          target,
+          intent.playerId,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
     }
-    // MONITOR: cross-cycle channel-activity tracking is deferred (see issue #74 follow-up).
-    // The intent is accepted and resolved in tier order so the infrastructure is exercised.
   }
 
   // ── Tier 3: Communication interference ───────────────────────────
-  // JAM / MISDIRECT / IMITATE require cross-cycle effect state (apply on next day).
-  // Public placeholder events are now emitted so players see that interference occurred.
-  // Cross-cycle effect application (actual message suppression / redirection) is still
-  // deferred to a follow-up task — only the events are wired here.
   for (const intent of byTier(3)) {
     const submitter = session.players[intent.playerId];
     if (!submitter || !submitter.alive) continue;
+    const target = intent.payload.targetPlayerId;
+    if (!target) continue;
+    const targetPlayer = session.players[target];
+    if (!targetPlayer || !targetPlayer.alive) continue;
 
     if (intent.payload.actionType === NightActionType.JAM) {
+      // Signal Jammer (#86): JAMMED on PRIVATE channels for the next Day Cycle.
+      applyRestriction(
+        session,
+        RestrictionBuilders.jammed(
+          target,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
       appendSystemEvent(session, SystemEventType.COMMUNICATION_JAMMED, transitionAt,
         SystemEventMetadataBuilders.communicationJammed());
     } else if (intent.payload.actionType === NightActionType.MISDIRECT) {
+      // Troller (#88): one-shot ALTERED (SCRAMBLE mode) on the target's first PM.
+      applyRestriction(
+        session,
+        RestrictionBuilders.altered(
+          target,
+          [ChannelType.PRIVATE],
+          'SCRAMBLE',
+          true, // oneShot — fires on first PM only
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
       appendSystemEvent(session, SystemEventType.MESSAGE_INTEGRITY_COMPROMISED, transitionAt,
         SystemEventMetadataBuilders.messageIntegrityCompromised());
     } else if (intent.payload.actionType === NightActionType.IMITATE) {
-      appendSystemEvent(session, SystemEventType.PSYCHIC_SIGNAL_RECEIVED, transitionAt,
-        SystemEventMetadataBuilders.psychicSignalReceived());
+      // Imitator (#89): SILENCE the target across all channels for the next
+      // Day Cycle, and JAM the imitator's own PMs (they may chat publicly but
+      // not send DMs — design-doc constraint). Display-name aliasing is
+      // deferred — adding ALIASED requires extending RestrictionType and the
+      // message pipeline; tracked as follow-up.
+      applyRestriction(
+        session,
+        RestrictionBuilders.silenced(
+          target,
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
+      applyRestriction(
+        session,
+        RestrictionBuilders.jammed(
+          intent.playerId,
+          [ChannelType.PRIVATE],
+          intent.playerId,
+          Phase.DAY_RESOLVE,
+          transitionAt,
+        ),
+      );
     }
   }
 
@@ -414,17 +474,28 @@ export function resolveNightActions(
     if (!submitter || !submitter.alive) continue;
 
     if (intent.payload.actionType === NightActionType.CREATE_TEMP_CHAT) {
-      const targetId = intent.payload.targetPlayerId;
-      if (!targetId || targetId === intent.playerId) continue;
-      const targetPlayer = session.players[targetId];
-      if (!targetPlayer || !targetPlayer.alive) continue;
+      // Extrovert may invite any number of players. Accept the new
+      // `targetPlayerIds` array; fall back to legacy single `targetPlayerId`
+      // for backward compat with intents persisted before #81.
+      const rawIds = intent.payload.targetPlayerIds
+        ?? (intent.payload.targetPlayerId ? [intent.payload.targetPlayerId] : []);
+      const filtered: string[] = [];
+      const seen = new Set<string>([intent.playerId]);
+      for (const id of rawIds) {
+        if (!id || seen.has(id)) continue;
+        const p = session.players[id];
+        if (!p || !p.alive) continue;
+        seen.add(id);
+        filtered.push(id);
+      }
+      if (filtered.length === 0) continue;
 
       const channelId = `temp-${intent.id}`;
       if (session.channels[channelId]) continue;
       const newChannel: ChannelState = {
         id: channelId,
         type: ChannelType.TEMP,
-        members: [intent.playerId, targetId],
+        members: [intent.playerId, ...filtered],
         locked: false,
         expiresAt: Phase.DAY_RESOLVE,
       };
@@ -436,20 +507,14 @@ export function resolveNightActions(
         SystemEventMetadataBuilders.tempChannelCreated(channelId),
       );
     } else if (intent.payload.actionType === NightActionType.CHANNEL_LOCK) {
-      // Prefer the dedicated targetChannelId field; fall back to targetPlayerId for backward
-      // compat with in-flight payloads submitted before clients migrated.
-      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId. Paired
-      // sites: ws-message-handler.ts ~L199 (validator) and ~L840 (resolvedTargetId).
+      // FIREWALL is once-per-game (#84). Defense-in-depth — validator also rejects.
+      if (submitter.roleId === RoleId.FIREWALL && submitter.firewallUsed) continue;
       const channelId = intent.payload.targetChannelId ?? intent.payload.targetPlayerId;
       if (!channelId) continue;
       const channel = session.channels[channelId];
       // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (!channel || channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) continue;
       if (channel.locked) continue;
-      // Route through the Communication Restriction Framework so the lock auto-expires at
-      // end of the next Day Cycle (#76 spec). `applyRestriction` re-derives the
-      // `channel.locked` mirror in the same operation, so projections and send-pipeline
-      // fast-paths keep reading the boolean without scanning `session.restrictions`.
       applyRestriction(
         session,
         RestrictionBuilders.locked(channelId, intent.playerId, Phase.DAY_RESOLVE, transitionAt),
@@ -460,10 +525,19 @@ export function resolveNightActions(
         transitionAt,
         SystemEventMetadataBuilders.channelLocked(channelId),
       );
+      if (submitter.roleId === RoleId.FIREWALL) {
+        submitter.firewallUsed = true;
+      }
     } else if (intent.payload.actionType === NightActionType.SWAP_ROLE) {
       // The Jealous (#90): role-only swap — Jealous adopts target's roleId
       // but stays on Team.NEUTRAL. Target becomes their original team's base
       // role; team unchanged. Once-per-game gate via `jealousUsed`.
+      //
+      // Team-coupled abilities are silently inert when adopted by a Jealous
+      // who stays on Team.NEUTRAL — e.g. THE_BOSS's kill override
+      // (resolveHackerKillTarget filters by `team === HACKERS`) and HACKER_KILL
+      // tally participation. This is intentional: Jealous wins on survival
+      // alone and shouldn't influence hacker plurality.
       if (submitter.roleId !== RoleId.JEALOUS) continue;
       if (submitter.jealousUsed) continue;
       const targetId = intent.payload.targetPlayerId;
@@ -477,6 +551,13 @@ export function resolveNightActions(
       submitter.roleId = previousTargetRole;
       targetPlayer.roleId = targetBaseRole;
       submitter.jealousUsed = true;
+      // Transfer role-bound once-per-game flags with the role itself rather
+      // than letting them stay on the player record. Otherwise the demoted
+      // target keeps a stale `firewallUsed=true` (silently locks them out if
+      // they ever become Firewall again) and the Jealous gets a fresh slate
+      // even when the original Firewall already burned the once-per-game lock.
+      submitter.firewallUsed = targetPlayer.firewallUsed ?? false;
+      targetPlayer.firewallUsed = false;
       appendPrivateSystemEvent(
         session,
         intent.playerId,
@@ -872,6 +953,24 @@ function resolveHackerKillTarget(session: GameState): string | null {
         targetPlayerId: payload.targetPlayerId ?? null,
         createdAt: intent.createdAt,
       });
+    }
+  }
+
+  // The Boss override (#85): if a living Boss submitted a valid kill target,
+  // it overrides plurality. If the Boss abstains or didn't submit, fall through
+  // to normal plurality voting below.
+  const bossPlayer = livingHackers.find((p) => p.roleId === RoleId.THE_BOSS);
+  if (bossPlayer) {
+    const bossSubmission = latestPerHacker.get(bossPlayer.playerId);
+    const bossTarget = bossSubmission?.targetPlayerId ?? null;
+    if (bossTarget) {
+      const bossTargetPlayer = session.players[bossTarget];
+      const bossTargetValid =
+        bossTarget !== bossPlayer.playerId
+        && bossTargetPlayer !== undefined
+        && bossTargetPlayer.alive
+        && bossTargetPlayer.team !== Team.HACKERS;
+      if (bossTargetValid) return bossTarget;
     }
   }
 

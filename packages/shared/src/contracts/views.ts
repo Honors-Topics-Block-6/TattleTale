@@ -153,6 +153,12 @@ export interface HackerNightView {
   tally: Record<string, number>;
   /** Viewer's own confirmed HACKER_KILL target for the current cycle, if submitted. */
   confirmedTarget: string | null;
+  /**
+   * Player id of the living THE_BOSS, if any. The Boss's submitted target overrides
+   * plurality voting (see runtime-domain.ts resolveHackerKillTarget). Visible only to
+   * the Hacker team so other Hackers know whose vote will decide the kill.
+   */
+  bossPlayerId: string | null;
 }
 
 export interface ProtectNightView {
@@ -166,6 +172,46 @@ export interface JealousNightView {
   /** True iff the Jealous has already used their once-per-game swap. */
   used: boolean;
 }
+
+/**
+ * Generic single-target Hacker night-action view (#86–#89).
+ * Used by Signal Jammer (JAM), Eavesdropper (MONITOR), Troller (MISDIRECT),
+ * and Imitator (IMITATE). Each role only ever submits its own action type;
+ * the panel's role-specific copy is rendered client-side. Per-role views are
+ * kept distinct on `PlayerSessionView` so future role-specific surface area
+ * (extra fields, channel scopes, etc.) can grow independently.
+ */
+export interface HackerRoleNightView {
+  /** Viewer's own confirmed target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
+export interface FirewallChannelOption {
+  channelId: string;
+  type: ChannelType;
+  /** Pre-computed display label (mirrors ChannelView.label). */
+  label: string | null;
+}
+
+export interface FirewallNightView {
+  /** Channels the Firewall is allowed to lock. Filtered server-side to channels the Firewall is a member of, excluding SYSTEM and HACKER, and excluding already-locked channels. */
+  candidates: FirewallChannelOption[];
+  /** Viewer's own confirmed CHANNEL_LOCK target for the current cycle, if submitted. */
+  confirmedTargetChannelId: string | null;
+  /** True iff the Firewall has already used their once-per-game lock. */
+  used: boolean;
+}
+
+export interface VengefulNightView {
+  /** Viewer's own confirmed VENGEFUL_KILL spite target for the current cycle, if submitted. */
+  confirmedTarget: string | null;
+}
+
+export interface ExtrovertNightView {
+  /** Viewer's own confirmed CREATE_TEMP_CHAT invitee list for the current cycle, if submitted. */
+  confirmedTargetIds: string[] | null;
+}
+
 
 export interface PlayerSessionView {
   gameId: string;
@@ -208,6 +254,47 @@ export interface PlayerSessionView {
    * neutrals alive.
    */
   neutralWinners: string[] | null;
+  /**
+   * Signal Jammer (#86) night state. Non-null iff viewer is a living
+   * SIGNAL_JAMMER AND phase is NIGHT_ACTIONS.
+   */
+  jammerNightView: HackerRoleNightView | null;
+  /**
+   * Eavesdropper (#87) night state. Non-null iff viewer is a living
+   * EAVESDROPPER AND phase is NIGHT_ACTIONS.
+   */
+  eavesdropperNightView: HackerRoleNightView | null;
+  /**
+   * Troller (#88) night state. Non-null iff viewer is a living
+   * TROLLER AND phase is NIGHT_ACTIONS.
+   */
+  trollerNightView: HackerRoleNightView | null;
+  /**
+   * Imitator (#89) night state. Non-null iff viewer is a living
+   * IMITATOR AND phase is NIGHT_ACTIONS.
+   */
+  imitatorNightView: HackerRoleNightView | null;
+  /**
+   * Firewall-only night state. Non-null iff viewer is a living FIREWALL AND
+   * phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * FirewallPanel iff this is non-null.
+   */
+  firewallNightView: FirewallNightView | null;
+  /**
+   * Vengeful-only night state. Non-null iff viewer is a living VENGEFUL AND
+   * phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * VengeancePanel iff this is non-null. The Vengeful pre-submits a spite
+   * target during NIGHT_ACTIONS; if they are eliminated by the hacker kill
+   * that night, the target is killed alongside them. See runtime-domain.ts
+   * resolveNightActions for the post-elimination follow-on.
+   */
+  vengefulNightView: VengefulNightView | null;
+  /**
+   * Extrovert-only night state. Non-null iff viewer is a living EXTROVERT
+   * AND phase is NIGHT_ACTIONS. Single discriminator — clients render
+   * InvitePanel iff this is non-null.
+   */
+  extrovertNightView: ExtrovertNightView | null;
   /**
    * Active communication restrictions affecting this viewer. Covert
    * restrictions (MONITORED) are always omitted. Populated by the

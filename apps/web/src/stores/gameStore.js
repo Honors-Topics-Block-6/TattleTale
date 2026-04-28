@@ -52,6 +52,29 @@ const initialState = {
   pendingJealousSelection: null,
   neutralWinners: null,
 
+  // Hacker comm-role slices (#86–#89). Single pending selection per role —
+  // each role only sees its own panel.
+  jammerNightView: null,
+  pendingJammerSelection: null,
+  eavesdropperNightView: null,
+  pendingEavesdropperSelection: null,
+  trollerNightView: null,
+  pendingTrollerSelection: null,
+  imitatorNightView: null,
+  pendingImitatorSelection: null,
+
+  // Firewall slice
+  firewallNightView: null,
+  pendingFirewallSelection: null,
+
+  // Vengeful slice
+  vengefulNightView: null,
+  pendingVengefulSelection: null,
+
+  // Extrovert slice
+  extrovertNightView: null,
+  pendingExtrovertSelections: [],
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -180,7 +203,7 @@ const useGameStore = create(
 
     selectNightKillTarget: (id) =>
       set((state) => {
-        if (state.hackerNightView?.confirmedTarget !== null && state.hackerNightView?.confirmedTarget !== undefined) return;
+        if (state.hackerNightView?.confirmedTarget != null) return;
         state.pendingNightKillSelection = id;
       }),
 
@@ -208,7 +231,7 @@ const useGameStore = create(
 
     selectProtectTarget: (id) =>
       set((state) => {
-        if (state.protectNightView?.confirmedTarget !== null && state.protectNightView?.confirmedTarget !== undefined) return;
+        if (state.protectNightView?.confirmedTarget != null) return;
         state.pendingProtectSelection = id;
       }),
 
@@ -227,6 +250,84 @@ const useGameStore = create(
       }),
     clearJealousSelection: () =>
       set((state) => { state.pendingJealousSelection = null; }),
+
+    // --- Hacker comm-role actions (#86–#89) ---
+
+    selectJammerTarget: (id) =>
+      set((state) => {
+        if (state.jammerNightView?.confirmedTarget != null) return;
+        state.pendingJammerSelection = id;
+      }),
+    clearJammerSelection: () =>
+      set((state) => { state.pendingJammerSelection = null; }),
+
+    selectEavesdropperTarget: (id) =>
+      set((state) => {
+        if (state.eavesdropperNightView?.confirmedTarget != null) return;
+        state.pendingEavesdropperSelection = id;
+      }),
+    clearEavesdropperSelection: () =>
+      set((state) => { state.pendingEavesdropperSelection = null; }),
+
+    selectTrollerTarget: (id) =>
+      set((state) => {
+        if (state.trollerNightView?.confirmedTarget != null) return;
+        state.pendingTrollerSelection = id;
+      }),
+    clearTrollerSelection: () =>
+      set((state) => { state.pendingTrollerSelection = null; }),
+
+    selectImitatorTarget: (id) =>
+      set((state) => {
+        if (state.imitatorNightView?.confirmedTarget != null) return;
+        state.pendingImitatorSelection = id;
+      }),
+    clearImitatorSelection: () =>
+      set((state) => { state.pendingImitatorSelection = null; }),
+
+    // --- Firewall actions ---
+
+    selectFirewallTarget: (channelId) =>
+      set((state) => {
+        if (state.firewallNightView?.confirmedTargetChannelId != null) return;
+        if (state.firewallNightView?.used) return;
+        state.pendingFirewallSelection = channelId;
+      }),
+
+    clearFirewallSelection: () =>
+      set((state) => {
+        state.pendingFirewallSelection = null;
+      }),
+
+    // --- Vengeful actions ---
+
+    selectVengefulTarget: (id) =>
+      set((state) => {
+        if (state.vengefulNightView?.confirmedTarget != null) return;
+        state.pendingVengefulSelection = id;
+      }),
+
+    clearVengefulSelection: () =>
+      set((state) => {
+        state.pendingVengefulSelection = null;
+      }),
+
+    // --- Extrovert actions ---
+
+    toggleExtrovertTarget: (id) =>
+      set((state) => {
+        if (state.extrovertNightView?.confirmedTargetIds != null) return;
+        const list = state.pendingExtrovertSelections ?? [];
+        const idx = list.indexOf(id);
+        if (idx === -1) list.push(id);
+        else list.splice(idx, 1);
+        state.pendingExtrovertSelections = list;
+      }),
+
+    clearExtrovertSelections: () =>
+      set((state) => {
+        state.pendingExtrovertSelections = [];
+      }),
 
     // --- Session actions ---
 
@@ -361,6 +462,37 @@ const useGameStore = create(
         state.protectNightView = view.protectNightView ?? null;
         state.jealousNightView = view.jealousNightView ?? null;
         state.neutralWinners = view.neutralWinners ?? null;
+        state.jammerNightView = view.jammerNightView ?? null;
+        state.eavesdropperNightView = view.eavesdropperNightView ?? null;
+        state.trollerNightView = view.trollerNightView ?? null;
+        state.imitatorNightView = view.imitatorNightView ?? null;
+        state.firewallNightView = view.firewallNightView ?? null;
+        state.vengefulNightView = view.vengefulNightView ?? null;
+        state.extrovertNightView = view.extrovertNightView ?? null;
+        // Clear pending selections once the server has acknowledged each
+        // submission, so panels read exclusively from confirmed* fields and
+        // don't show pending + confirmed indicators simultaneously.
+        if (view.jammerNightView?.confirmedTarget != null) {
+          state.pendingJammerSelection = null;
+        }
+        if (view.eavesdropperNightView?.confirmedTarget != null) {
+          state.pendingEavesdropperSelection = null;
+        }
+        if (view.trollerNightView?.confirmedTarget != null) {
+          state.pendingTrollerSelection = null;
+        }
+        if (view.imitatorNightView?.confirmedTarget != null) {
+          state.pendingImitatorSelection = null;
+        }
+        if (view.firewallNightView?.confirmedTargetChannelId != null) {
+          state.pendingFirewallSelection = null;
+        }
+        if (view.vengefulNightView?.confirmedTarget != null) {
+          state.pendingVengefulSelection = null;
+        }
+        if (view.extrovertNightView?.confirmedTargetIds != null) {
+          state.pendingExtrovertSelections = [];
+        }
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
@@ -368,6 +500,13 @@ const useGameStore = create(
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
           state.pendingJealousSelection = null;
+          state.pendingJammerSelection = null;
+          state.pendingEavesdropperSelection = null;
+          state.pendingTrollerSelection = null;
+          state.pendingImitatorSelection = null;
+          state.pendingFirewallSelection = null;
+          state.pendingVengefulSelection = null;
+          state.pendingExtrovertSelections = [];
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -385,6 +524,18 @@ const useGameStore = create(
           view.myRole !== 'SECURITY_SPECIALIST'
         ) {
           state.pendingProtectSelection = null;
+        }
+        if (previousSelfRole === 'FIREWALL' && view.myRole !== 'FIREWALL') {
+          state.pendingFirewallSelection = null;
+        }
+        if (previousSelfRole === 'VENGEFUL' && view.myRole !== 'VENGEFUL') {
+          state.pendingVengefulSelection = null;
+        }
+        if (
+          previousSelfRole === 'EXTROVERT' &&
+          view.myRole !== 'EXTROVERT'
+        ) {
+          state.pendingExtrovertSelections = [];
         }
 
         // Session slice
@@ -422,11 +573,20 @@ export function selectIsSecuritySpecialist(state) {
   return Boolean(self?.alive);
 }
 
-export function selectIsJealous(state) {
-  if (state.selfRole !== 'JEALOUS') return false;
+function selectIsRole(state, roleId) {
+  if (state.selfRole !== roleId) return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }
+
+export const selectIsJealous = (state) => selectIsRole(state, 'JEALOUS');
+export const selectIsSignalJammer = (state) => selectIsRole(state, 'SIGNAL_JAMMER');
+export const selectIsEavesdropper = (state) => selectIsRole(state, 'EAVESDROPPER');
+export const selectIsTroller = (state) => selectIsRole(state, 'TROLLER');
+export const selectIsImitator = (state) => selectIsRole(state, 'IMITATOR');
+export const selectIsFirewall = (state) => selectIsRole(state, 'FIREWALL');
+export const selectIsVengeful = (state) => selectIsRole(state, 'VENGEFUL');
+export const selectIsExtrovert = (state) => selectIsRole(state, 'EXTROVERT');
 
 export function selectInvestigateCandidates(state) {
   if (!state.players) return [];

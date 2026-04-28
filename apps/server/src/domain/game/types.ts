@@ -24,6 +24,13 @@ export interface PlayerState {
    * resolver and rejected at the validator. Optional for backward compat.
    */
   jealousUsed?: boolean;
+  /**
+   * Once-per-game flag for FIREWALL's CHANNEL_LOCK. Set the first time the
+   * Firewall successfully locks a channel; subsequent submissions are
+   * rejected at validation time. Optional for backward compat with sessions
+   * persisted before #84.
+   */
+  firewallUsed?: boolean;
 }
 
 export interface ChannelState {
@@ -51,6 +58,8 @@ export interface VoteIntentPayload {
 export interface NightActionIntentPayload {
   actionType: NightActionType;
   targetPlayerId: string | null;
+  /** Multi-target list. Currently only consumed by CREATE_TEMP_CHAT (Extrovert). */
+  targetPlayerIds?: string[] | null;
   targetChannelId?: string;
   metadata: Record<string, unknown>;
 }

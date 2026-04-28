@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, SessionStatus, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type JealousNightView, type ViewerRestriction } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, SessionStatus, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type JealousNightView, type HackerRoleNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -124,7 +124,14 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
         if (intent.playerId === playerId) confirmedTarget = target;
       }
 
-      hackerNightView = { tally, confirmedTarget };
+      // Surface the living Boss's player id (if any) so Hackers know whose
+      // selection will override plurality (#85). Null if no Boss is alive.
+      const livingBoss = Object.values(session.players).find(
+        (p) => p.alive && p.team === Team.HACKERS && p.roleId === RoleId.THE_BOSS,
+      );
+      const bossPlayerId = livingBoss?.playerId ?? null;
+
+      hackerNightView = { tally, confirmedTarget, bossPlayerId };
     }
   }
 
@@ -173,6 +180,117 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     session.status === SessionStatus.ACTIVE
       ? null
       : (session.neutralWinners ?? []);
+
+  // Hacker comm-roles (#86–#89). Each role exposes a single-target view that
+  // mirrors the ProtectNightView shape — null unless living + role + NIGHT_ACTIONS.
+  const hackerRoleView = (
+    requiredRole: RoleId,
+    requiredAction: NightActionType,
+  ): HackerRoleNightView | null => {
+    if (
+      !player?.alive
+      || player.roleId !== requiredRole
+      || session.phase !== Phase.NIGHT_ACTIONS
+    ) return null;
+    let confirmedTarget: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== requiredAction) continue;
+      confirmedTarget = payload.targetPlayerId ?? null;
+    }
+    return { confirmedTarget };
+  };
+
+  const jammerNightView = hackerRoleView(RoleId.SIGNAL_JAMMER, NightActionType.JAM);
+  const eavesdropperNightView = hackerRoleView(RoleId.EAVESDROPPER, NightActionType.MONITOR);
+  const trollerNightView = hackerRoleView(RoleId.TROLLER, NightActionType.MISDIRECT);
+  const imitatorNightView = hackerRoleView(RoleId.IMITATOR, NightActionType.IMITATE);
+
+  // Firewall-scoped night fields (#84). Non-null iff viewer is a living
+  // FIREWALL AND phase is NIGHT_ACTIONS. Surfaces the channel options the
+  // Firewall may lock (excluding SYSTEM, HACKER) and the once-per-game flag.
+  let firewallNightView: FirewallNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.FIREWALL
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    const candidates: FirewallChannelOption[] = Object.values(session.channels)
+      .filter((ch) =>
+        ch.members.includes(playerId)
+        && ch.type !== ChannelType.SYSTEM
+        && ch.type !== ChannelType.HACKER
+        && !ch.locked,
+      )
+      .map((ch) => {
+        let label: string | null = null;
+        if (ch.type === ChannelType.PRIVATE) {
+          const otherId = ch.members.find((id) => id !== playerId) ?? null;
+          label = otherId !== null ? (session.players[otherId]?.displayName ?? null) : null;
+        }
+        return { channelId: ch.id, type: ch.type, label };
+      });
+    let confirmedTargetChannelId: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.CHANNEL_LOCK) continue;
+      confirmedTargetChannelId = payload.targetChannelId ?? payload.targetPlayerId ?? null;
+    }
+    firewallNightView = {
+      candidates,
+      confirmedTargetChannelId,
+      used: !!player.firewallUsed,
+    };
+  }
+
+  // Vengeful-scoped night fields (#83). Non-null iff viewer is a living
+  // VENGEFUL AND phase is NIGHT_ACTIONS. The Vengeful pre-submits a spite
+  // target that fires only if they are eliminated by the hacker kill that
+  // night (see runtime-domain.ts vengefulIntent handling).
+  let vengefulNightView: VengefulNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.VENGEFUL
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    let confirmedTarget: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.VENGEFUL_KILL) continue;
+      confirmedTarget = payload.targetPlayerId ?? null;
+    }
+    vengefulNightView = { confirmedTarget };
+  }
+
+  // Extrovert-scoped night fields. Mirrors protectNightView discriminator:
+  // non-null iff viewer is a living EXTROVERT AND phase is NIGHT_ACTIONS.
+  let extrovertNightView: ExtrovertNightView | null = null;
+  if (
+    !!player?.alive
+    && player.roleId === RoleId.EXTROVERT
+    && session.phase === Phase.NIGHT_ACTIONS
+  ) {
+    let confirmedTargetIds: string[] | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== NightActionType.CREATE_TEMP_CHAT) continue;
+      confirmedTargetIds = payload.targetPlayerIds
+        ?? (payload.targetPlayerId ? [payload.targetPlayerId] : []);
+    }
+    extrovertNightView = { confirmedTargetIds };
+  }
 
   return {
     gameId: session.gameId,
@@ -230,6 +348,13 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     protectNightView,
     jealousNightView,
     neutralWinners,
+    jammerNightView,
+    eavesdropperNightView,
+    trollerNightView,
+    imitatorNightView,
+    firewallNightView,
+    vengefulNightView,
+    extrovertNightView,
     myRestrictions: projectRestrictions(
       session.restrictions ?? [],
       playerId,

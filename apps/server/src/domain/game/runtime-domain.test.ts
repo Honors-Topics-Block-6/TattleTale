@@ -357,6 +357,11 @@ describe('runtime-domain', () => {
       const session = buildSessionFromLobby(lobby, 'game-1', '2026-03-17T00:00:00.000Z');
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
+      // Strip THE_BOSS so plurality-voting tests are not perturbed by the
+      // override path (#85). The Boss-specific tests below re-assign the role.
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -502,6 +507,68 @@ describe('runtime-domain', () => {
       submitKill(session, h2, f1);
       expect(resolveHackerKillTargetForTest(session)).toBe(f1);
     });
+
+    it("The Boss's target overrides plurality (#85)", () => {
+      const { session } = setupNightSession();
+      const [h1, h2, h3] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      // Need at least 3 hackers to demonstrate override; setup uses 2. Promote a friend.
+      if (!h3) {
+        session.players[f2].team = Team.HACKERS;
+      }
+      const livingHackers = Object.values(session.players)
+        .filter((p) => p.alive && p.team === Team.HACKERS).map((p) => p.playerId);
+      const [b, ...rest] = livingHackers;
+      session.players[b].roleId = RoleId.THE_BOSS;
+      // Pick a non-Hacker target list. f1 stays Friend.
+      const friendsAlive = Object.values(session.players).filter((p) => p.alive && p.team === Team.FRIENDS).map((p) => p.playerId);
+      const targetA = friendsAlive[0];
+      const targetB = friendsAlive[1] ?? friendsAlive[0];
+      // Two non-Boss hackers vote A; Boss votes B. Boss wins.
+      for (const r of rest) submitKill(session, r, targetA);
+      submitKill(session, b, targetB);
+      expect(resolveHackerKillTargetForTest(session)).toBe(targetB);
+      // Sanity: ensure rest size is at least 1 so plurality would have differed.
+      expect(rest.length).toBeGreaterThanOrEqual(1);
+      void h1; void h2;
+    });
+
+    it('falls back to plurality when The Boss abstains', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      // Promote a friend so we have 3 living hackers and plurality is meaningful
+      // when the Boss does not submit.
+      session.players[f2].team = Team.HACKERS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      // Boss abstains; the two non-Boss hackers both vote f1 → plurality wins.
+      submitKill(session, h2, f1);
+      submitKill(session, f2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it('falls back to plurality when The Boss is dead', () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1] = friendsOf(session);
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      session.players[h1].alive = false;
+      // With Boss dead, only h2 is a living Hacker → lone-hacker plurality.
+      submitKill(session, h2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
+
+    it("falls back to plurality when The Boss's target is invalid (e.g. fellow Hacker)", () => {
+      const { session } = setupNightSession();
+      const [h1, h2] = hackersOf(session);
+      const [f1, f2] = friendsOf(session);
+      session.players[f2].team = Team.HACKERS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+      submitKill(session, h1, h2); // invalid: targets another Hacker
+      submitKill(session, h2, f1);
+      submitKill(session, f2, f1);
+      expect(resolveHackerKillTargetForTest(session)).toBe(f1);
+    });
   });
 
   describe('NIGHT_ACTIONS → NIGHT_RESOLVE', () => {
@@ -511,6 +578,10 @@ describe('runtime-domain', () => {
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, now, () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
       session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      // Strip THE_BOSS so plurality-tie tests are not perturbed by Boss override (#85).
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -687,6 +758,11 @@ describe('runtime-domain', () => {
       initializeSessionRuntime(session, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:00.000Z', () => 0);
       session.phase = Phase.NIGHT_ACTIONS;
       session.timers.currentPhaseEndsAt = '2026-03-17T00:00:30.000Z';
+      // Strip THE_BOSS so plurality-voting tests are not perturbed by the
+      // override path (#85). Boss-specific tests can re-assign the role.
+      for (const p of Object.values(session.players)) {
+        if (p.roleId === RoleId.THE_BOSS) p.roleId = RoleId.HACKER;
+      }
       return { lobby, session };
     }
 
@@ -786,6 +862,89 @@ describe('runtime-domain', () => {
       expect(session.privateSystemEvents?.[f2]).toBeUndefined();
     });
 
+    it('Tier 2 MONITOR applies a covert MONITORED restriction on PRIVATE channels (#87)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.MONITOR, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'MONITORED');
+      expect(r).toBeDefined();
+      if (r?.type === 'MONITORED') {
+        expect(r.targetPlayerId).toBe(f1);
+        expect(r.observerPlayerId).toBe(h1);
+        expect(r.channelTypes).toContain(ChannelType.PRIVATE);
+        expect(r.expiresAt).toBe(Phase.DAY_RESOLVE);
+      }
+    });
+
+    it('Tier 3 JAM applies a JAMMED restriction on PRIVATE channels and emits COMMUNICATION_JAMMED (#86)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.JAM, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'JAMMED' && r.playerId === f1);
+      expect(r).toBeDefined();
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.COMMUNICATION_JAMMED)).toBe(true);
+    });
+
+    it('Tier 3 MISDIRECT applies a one-shot ALTERED (SCRAMBLE) restriction on PRIVATE channels (#88)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.MISDIRECT, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'ALTERED' && r.targetPlayerId === f1);
+      expect(r).toBeDefined();
+      if (r?.type === 'ALTERED') {
+        expect(r.mode).toBe('SCRAMBLE');
+        expect(r.oneShot).toBe(true);
+        expect(r.spent).toBe(false);
+      }
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.MESSAGE_INTEGRITY_COMPROMISED)).toBe(true);
+    });
+
+    it('Tier 3 IMITATE silences the target and jams the imitator on PRIVATE (#89)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.IMITATE, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const silenced = (session.restrictions ?? []).find(
+        (r) => r.type === 'SILENCED' && r.playerId === f1,
+      );
+      expect(silenced).toBeDefined();
+      const jammed = (session.restrictions ?? []).find(
+        (r) => r.type === 'JAMMED' && r.playerId === h1,
+      );
+      expect(jammed).toBeDefined();
+    });
+
     it('Tier 5 CREATE_TEMP_CHAT adds a TEMP channel expiring at DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1, f2] = friendIds(session);
@@ -856,6 +1015,112 @@ describe('runtime-domain', () => {
       void h2;
     });
 
+    it('SWAP_ROLE — Jealous adopting THE_BOSS does NOT trigger Boss kill override (Jealous stays NEUTRAL, filtered out by hacker resolver)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1, h2] = hackerIds(session);
+      const [f1, f2] = friendIds(session);
+      // Jealous adopts THE_BOSS via SWAP_ROLE; original Boss demoted to HACKER.
+      session.players[f1].team = Team.NEUTRAL;
+      session.players[f1].roleId = RoleId.JEALOUS;
+      session.players[h1].roleId = RoleId.THE_BOSS;
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.SWAP_ROLE, targetPlayerId: h1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      // Pump to next NIGHT_ACTIONS so Jealous-as-Boss can submit a kill.
+      let now = Date.parse('2026-03-17T00:01:00.000Z');
+      for (let i = 0; i < 20; i++) {
+        if (session.phase === Phase.NIGHT_ACTIONS && session.cycle > 0) break;
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        now += 10 * 60 * 1000;
+      }
+
+      // Jealous-as-Boss tries to override the kill onto f2; surviving hackers abstain.
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.HACKER_KILL, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: new Date(now + 1000).toISOString(),
+      });
+      const target = resolveHackerKillTargetForTest(session);
+      // Jealous (team=NEUTRAL) is filtered out of livingHackers, so the override never fires.
+      // With h2 abstaining, plurality has no winner → null.
+      expect(target).toBeNull();
+      expect(session.players[f2].alive).toBe(true);
+      void h2;
+    });
+
+    it('SWAP_ROLE — Jealous adopting FIREWALL inherits target firewallUsed and clears it on demoted player', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2] = friendIds(session);
+      session.players[f1].team = Team.NEUTRAL;
+      session.players[f1].roleId = RoleId.JEALOUS;
+      session.players[f2].roleId = RoleId.FIREWALL;
+      session.players[f2].firewallUsed = true; // Original Firewall already burned their lock.
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.SWAP_ROLE, targetPlayerId: f2, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      // Jealous now holds FIREWALL with the burned flag; demoted player no longer carries it.
+      expect(session.players[f1].roleId).toBe(RoleId.FIREWALL);
+      expect(session.players[f1].firewallUsed).toBe(true);
+      expect(session.players[f2].firewallUsed).toBe(false);
+    });
+
+    it('Tier 5 CREATE_TEMP_CHAT (multi-target) invites every selected player and filters dead/self/duplicates', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1, f2, f3] = friendIds(session);
+      // Mark a fourth player as dead to confirm filtering.
+      const allFriends = friendIds(session);
+      const deadId = allFriends[3];
+      session.players[deadId].alive = false;
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: {
+          actionType: NightActionType.CREATE_TEMP_CHAT,
+          targetPlayerId: null,
+          targetPlayerIds: [f2, f3, f1, f2, deadId],
+          metadata: {},
+        },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const tempChannels = Object.values(session.channels).filter((c) => c.type === ChannelType.TEMP);
+      expect(tempChannels).toHaveLength(1);
+      expect(tempChannels[0].members.sort()).toEqual([f1, f2, f3].sort());
+    });
+
+    it('Tier 5 CREATE_TEMP_CHAT (multi-target) creates no channel when every invitee is invalid', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: {
+          actionType: NightActionType.CREATE_TEMP_CHAT,
+          targetPlayerId: null,
+          targetPlayerIds: [f1],
+          metadata: {},
+        },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(Object.values(session.channels).some((c) => c.type === ChannelType.TEMP)).toBe(false);
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.TEMP_CHANNEL_CREATED)).toBe(false);
+    });
+
     it('Tier 5 CHANNEL_LOCK sets locked=true and appends a LOCKED restriction expiring at DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1] = friendIds(session);
@@ -877,6 +1142,47 @@ describe('runtime-domain', () => {
       );
       expect(lockRestriction).toBeDefined();
       expect(lockRestriction?.expiresAt).toBe(Phase.DAY_RESOLVE);
+    });
+
+    it('FIREWALL CHANNEL_LOCK is once-per-game — second submission is dropped and second channel stays unlocked (#84)', () => {
+      const { lobby, session } = buildNightSession();
+      const [f1] = friendIds(session);
+      session.players[f1].roleId = RoleId.FIREWALL;
+      // Add a second lockable channel so the second attempt has a distinct target.
+      session.channels.aux = {
+        id: 'aux',
+        type: ChannelType.GLOBAL,
+        members: Object.keys(session.players),
+        locked: false,
+        expiresAt: null,
+      };
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'global', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      expect(session.channels.global.locked).toBe(true);
+      expect(session.players[f1].firewallUsed).toBe(true);
+
+      // Pump phases until back to NIGHT_ACTIONS, then attempt a second lock.
+      let now = Date.parse('2026-03-17T00:01:00.000Z');
+      for (let i = 0; i < 20; i++) {
+        if (session.phase === Phase.NIGHT_ACTIONS && session.cycle > 0) break;
+        reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now).toISOString());
+        now += 10 * 60 * 1000;
+      }
+
+      appendIntent(session, {
+        playerId: f1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.CHANNEL_LOCK, targetPlayerId: 'aux', metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: new Date(now + 1000).toISOString(),
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, new Date(now + 60_000).toISOString());
+
+      expect(session.channels.aux.locked).toBe(false);
     });
 
     it('CHANNEL_LOCK expires at end of Day Cycle — channel reopens when transitioning out of DAY_RESOLVE', () => {

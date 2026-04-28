@@ -1,27 +1,21 @@
 import useGameStore from '../../stores/gameStore';
 import { useSocket } from '../../lib/SocketContext';
 
-export default function NightPanel() {
+export default function VengeancePanel() {
   const socket = useSocket();
   const players = useGameStore((s) => s.players);
   const selfId = useGameStore((s) => s.selfId);
-  const myTeammates = useGameStore((s) => s.myTeammates);
-  const hackerNightView = useGameStore((s) => s.hackerNightView);
-  const pendingSelection = useGameStore((s) => s.pendingNightKillSelection);
-  const selectNightKillTarget = useGameStore((s) => s.selectNightKillTarget);
+  const vengefulNightView = useGameStore((s) => s.vengefulNightView);
+  const pendingSelection = useGameStore((s) => s.pendingVengefulSelection);
+  const selectVengefulTarget = useGameStore((s) => s.selectVengefulTarget);
 
-  if (!hackerNightView) return null;
+  if (!vengefulNightView) return null;
 
-  const nightKillTally = hackerNightView.tally ?? {};
-  const confirmedNightKill = hackerNightView.confirmedTarget ?? null;
-  const hasSubmitted = confirmedNightKill !== null;
-  const bossPlayerId = hackerNightView.bossPlayerId ?? null;
-  const selfIsBoss = bossPlayerId !== null && bossPlayerId === selfId;
-  const bossName = bossPlayerId ? players[bossPlayerId]?.displayName ?? null : null;
+  const confirmedTarget = vengefulNightView.confirmedTarget ?? null;
+  const hasSubmitted = confirmedTarget !== null;
 
-  const hackerSet = new Set([selfId, ...(myTeammates ?? [])]);
   const candidates = Object.values(players).filter(
-    (p) => p.alive && !hackerSet.has(p.playerId),
+    (p) => p.alive && p.playerId !== selfId,
   );
 
   const handleConfirm = async () => {
@@ -31,7 +25,7 @@ export default function NightPanel() {
         intent: {
           type: 'SUBMIT_NIGHT_ACTION',
           payload: {
-            actionType: 'HACKER_KILL',
+            actionType: 'VENGEFUL_KILL',
             targetPlayerId: pendingSelection,
             metadata: {},
           },
@@ -39,7 +33,7 @@ export default function NightPanel() {
         },
       });
     } catch (err) {
-      console.error('Failed to submit night action:', err);
+      console.error('Failed to submit vengeful action:', err);
     }
   };
 
@@ -56,30 +50,24 @@ export default function NightPanel() {
         fontSize: 12,
       }}
     >
-      <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#f87171' }}>
-        Pick a target to hack tonight.
+      <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#a78bfa' }}>
+        Vengeful — pre-pick a spite target.
       </div>
-      {bossPlayerId && (
-        <div style={{ marginBottom: 8, color: '#fbbf24', fontSize: 11 }}>
-          {selfIsBoss
-            ? 'You are The Boss — your selection is final.'
-            : `${bossName ?? 'The Boss'} has final say tonight.`}
-        </div>
-      )}
+      <div style={{ marginBottom: 8, color: '#fbbf24', fontSize: 11 }}>
+        Fires only if a hacker eliminates you tonight. Otherwise nothing happens.
+      </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {candidates.map((p) => {
-          const tally = nightKillTally[p.playerId] ?? 0;
           const isSelected =
-            pendingSelection === p.playerId ||
-            confirmedNightKill === p.playerId;
+            pendingSelection === p.playerId || confirmedTarget === p.playerId;
           return (
             <div
               key={p.playerId}
-              onClick={() => !hasSubmitted && selectNightKillTarget(p.playerId)}
+              onClick={() => !hasSubmitted && selectVengefulTarget(p.playerId)}
               style={{
                 padding: '6px 8px',
                 cursor: hasSubmitted ? 'default' : 'pointer',
-                background: isSelected ? '#b91c1c' : 'transparent',
+                background: isSelected ? '#6d28d9' : 'transparent',
                 display: 'flex',
                 justifyContent: 'space-between',
                 borderRadius: 2,
@@ -87,7 +75,6 @@ export default function NightPanel() {
               }}
             >
               <span>{p.displayName}</span>
-              {tally > 0 && <span style={{ color: '#f87171' }}>{tally}</span>}
             </div>
           );
         })}
