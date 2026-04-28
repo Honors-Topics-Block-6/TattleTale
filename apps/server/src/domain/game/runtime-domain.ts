@@ -473,17 +473,28 @@ export function resolveNightActions(
     if (!submitter || !submitter.alive) continue;
 
     if (intent.payload.actionType === NightActionType.CREATE_TEMP_CHAT) {
-      const targetId = intent.payload.targetPlayerId;
-      if (!targetId || targetId === intent.playerId) continue;
-      const targetPlayer = session.players[targetId];
-      if (!targetPlayer || !targetPlayer.alive) continue;
+      // Extrovert may invite any number of players. Accept the new
+      // `targetPlayerIds` array; fall back to legacy single `targetPlayerId`
+      // for backward compat with intents persisted before #81.
+      const rawIds = intent.payload.targetPlayerIds
+        ?? (intent.payload.targetPlayerId ? [intent.payload.targetPlayerId] : []);
+      const filtered: string[] = [];
+      const seen = new Set<string>([intent.playerId]);
+      for (const id of rawIds) {
+        if (!id || seen.has(id)) continue;
+        const p = session.players[id];
+        if (!p || !p.alive) continue;
+        seen.add(id);
+        filtered.push(id);
+      }
+      if (filtered.length === 0) continue;
 
       const channelId = `temp-${intent.id}`;
       if (session.channels[channelId]) continue;
       const newChannel: ChannelState = {
         id: channelId,
         type: ChannelType.TEMP,
-        members: [intent.playerId, targetId],
+        members: [intent.playerId, ...filtered],
         locked: false,
         expiresAt: Phase.DAY_RESOLVE,
       };
@@ -495,20 +506,14 @@ export function resolveNightActions(
         SystemEventMetadataBuilders.tempChannelCreated(channelId),
       );
     } else if (intent.payload.actionType === NightActionType.CHANNEL_LOCK) {
-      // Prefer the dedicated targetChannelId field; fall back to targetPlayerId for backward
-      // compat with in-flight payloads submitted before clients migrated.
-      // TODO: remove the targetPlayerId fallback once all clients send targetChannelId. Paired
-      // sites: ws-message-handler.ts ~L199 (validator) and ~L840 (resolvedTargetId).
+      // FIREWALL is once-per-game (#84). Defense-in-depth — validator also rejects.
+      if (submitter.roleId === RoleId.FIREWALL && submitter.firewallUsed) continue;
       const channelId = intent.payload.targetChannelId ?? intent.payload.targetPlayerId;
       if (!channelId) continue;
       const channel = session.channels[channelId];
       // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (!channel || channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) continue;
       if (channel.locked) continue;
-      // Route through the Communication Restriction Framework so the lock auto-expires at
-      // end of the next Day Cycle (#76 spec). `applyRestriction` re-derives the
-      // `channel.locked` mirror in the same operation, so projections and send-pipeline
-      // fast-paths keep reading the boolean without scanning `session.restrictions`.
       applyRestriction(
         session,
         RestrictionBuilders.locked(channelId, intent.playerId, Phase.DAY_RESOLVE, transitionAt),
@@ -519,6 +524,9 @@ export function resolveNightActions(
         transitionAt,
         SystemEventMetadataBuilders.channelLocked(channelId),
       );
+      if (submitter.roleId === RoleId.FIREWALL) {
+        submitter.firewallUsed = true;
+      }
     }
     // SWAP_ROLE: requires role assignment to be meaningful. Deferred.
   }
@@ -868,6 +876,24 @@ function resolveHackerKillTarget(session: GameState): string | null {
         targetPlayerId: payload.targetPlayerId ?? null,
         createdAt: intent.createdAt,
       });
+    }
+  }
+
+  // The Boss override (#85): if a living Boss submitted a valid kill target,
+  // it overrides plurality. If the Boss abstains or didn't submit, fall through
+  // to normal plurality voting below.
+  const bossPlayer = livingHackers.find((p) => p.roleId === RoleId.THE_BOSS);
+  if (bossPlayer) {
+    const bossSubmission = latestPerHacker.get(bossPlayer.playerId);
+    const bossTarget = bossSubmission?.targetPlayerId ?? null;
+    if (bossTarget) {
+      const bossTargetPlayer = session.players[bossTarget];
+      const bossTargetValid =
+        bossTarget !== bossPlayer.playerId
+        && bossTargetPlayer !== undefined
+        && bossTargetPlayer.alive
+        && bossTargetPlayer.team !== Team.HACKERS;
+      if (bossTargetValid) return bossTarget;
     }
   }
 

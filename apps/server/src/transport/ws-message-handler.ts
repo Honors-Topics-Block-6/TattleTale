@@ -196,22 +196,24 @@ function validateNightActionTarget(
       return { valid: true };
     }
     case NightActionType.CREATE_TEMP_CHAT: {
-      if (!targetId || targetId === actorId) return { valid: false, reason: 'Target must be a living player other than yourself.' };
-      const target = session.players[targetId];
-      if (!target || !target.alive) return { valid: false, reason: 'Target must be a living player.' };
+      // Validation lives in the SUBMIT_NIGHT_ACTION branch (multi-target via
+      // targetPlayerIds). This switch arm never sees CREATE_TEMP_CHAT — kept
+      // as a defensive no-op so the switch is exhaustive.
+      void actor;
+      void targetId;
       return { valid: true };
     }
     case NightActionType.CHANNEL_LOCK: {
-      // targetPlayerId carries the channel id for this action type (targetChannelId preferred;
-      // targetPlayerId accepted for backward compat — TODO: remove fallback once clients migrate.
-      // Paired sites that must be removed together: ws-message-handler.ts ~L840 (resolvedTargetId)
-      // and runtime-domain.ts ~L438 (CHANNEL_LOCK resolver).
       if (!targetId) return { valid: false, reason: 'CHANNEL_LOCK requires a channel id.' };
       const channel = session.channels[targetId];
       if (!channel) return { valid: false, reason: 'Channel does not exist.' };
-      // SYSTEM and HACKER channels cannot be locked — FIREWALL operates on public/TEMP channels only.
       if (channel.type === ChannelType.SYSTEM || channel.type === ChannelType.HACKER) {
         return { valid: false, reason: 'System and Hacker channels cannot be locked.' };
+      }
+      // FIREWALL once-per-game gate (#84). Other roles wired to CHANNEL_LOCK in the future
+      // would set their own gates — we key on roleId rather than blanket-rejecting.
+      if (actor?.roleId === 'FIREWALL' && actor.firewallUsed) {
+        return { valid: false, reason: 'Firewall ability already used this game.' };
       }
       return { valid: true };
     }
@@ -904,15 +906,37 @@ export async function handleSubmitIntent(
       }
 
       // Per-action-type target validation.
-      // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
-      // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
-      // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
-      const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
-        ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
-        : nightPayload.targetPlayerId;
-      const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
-      if (!targetValidation.valid) {
-        return fail('INVALID_TARGET', targetValidation.reason);
+      // CREATE_TEMP_CHAT (Extrovert, #81): validates a multi-target list inline rather
+      // than via validateNightActionTarget, which is single-target only.
+      if (actionType === NightActionType.CREATE_TEMP_CHAT) {
+        const ids = Array.isArray(nightPayload.targetPlayerIds)
+          ? nightPayload.targetPlayerIds
+          : (nightPayload.targetPlayerId ? [nightPayload.targetPlayerId] : []);
+        if (!ids.length) {
+          return fail('INVALID_TARGET', 'CREATE_TEMP_CHAT requires at least one invitee.');
+        }
+        const seen = new Set<string>();
+        for (const id of ids) {
+          if (typeof id !== 'string' || !id || id === actorId || seen.has(id)) {
+            return fail('INVALID_TARGET', 'Invitees must be distinct living players other than yourself.');
+          }
+          seen.add(id);
+          const target = session.players[id];
+          if (!target || !target.alive) {
+            return fail('INVALID_TARGET', 'Invitees must be living players.');
+          }
+        }
+      } else {
+        // For CHANNEL_LOCK, prefer targetChannelId; fall back to targetPlayerId for backward
+        // compat with in-flight payloads. TODO: remove fallback once clients migrate. Paired
+        // sites: ws-message-handler.ts ~L199 (validator) and runtime-domain.ts ~L438 (resolver).
+        const resolvedTargetId = actionType === NightActionType.CHANNEL_LOCK
+          ? (nightPayload.targetChannelId ?? nightPayload.targetPlayerId)
+          : nightPayload.targetPlayerId;
+        const targetValidation = validateNightActionTarget(session, actorId, actionType, resolvedTargetId);
+        if (!targetValidation.valid) {
+          return fail('INVALID_TARGET', targetValidation.reason);
+        }
       }
     }
 
