@@ -47,6 +47,10 @@ const initialState = {
   protectNightView: null,
   pendingProtectSelection: null,
 
+  // Extrovert slice
+  extrovertNightView: null,
+  pendingExtrovertSelections: [],
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -212,6 +216,23 @@ const useGameStore = create(
         state.pendingProtectSelection = null;
       }),
 
+    // --- Extrovert actions ---
+
+    toggleExtrovertTarget: (id) =>
+      set((state) => {
+        if (state.extrovertNightView?.confirmedTargetIds) return;
+        const list = state.pendingExtrovertSelections ?? [];
+        const idx = list.indexOf(id);
+        if (idx === -1) list.push(id);
+        else list.splice(idx, 1);
+        state.pendingExtrovertSelections = list;
+      }),
+
+    clearExtrovertSelections: () =>
+      set((state) => {
+        state.pendingExtrovertSelections = [];
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -343,12 +364,14 @@ const useGameStore = create(
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
+        state.extrovertNightView = view.extrovertNightView ?? null;
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
           state.pendingProtectSelection = null;
+          state.pendingExtrovertSelections = [];
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -366,6 +389,12 @@ const useGameStore = create(
           view.myRole !== 'SECURITY_SPECIALIST'
         ) {
           state.pendingProtectSelection = null;
+        }
+        if (
+          previousSelfRole === 'EXTROVERT' &&
+          view.myRole !== 'EXTROVERT'
+        ) {
+          state.pendingExtrovertSelections = [];
         }
 
         // Session slice
@@ -399,6 +428,12 @@ export function selectIsWhiteHatHacker(state) {
 
 export function selectIsSecuritySpecialist(state) {
   if (state.selfRole !== 'SECURITY_SPECIALIST') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsExtrovert(state) {
+  if (state.selfRole !== 'EXTROVERT') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }

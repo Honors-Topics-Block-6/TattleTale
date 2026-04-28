@@ -15,6 +15,9 @@ export default function NightPanel() {
   const nightKillTally = hackerNightView.tally ?? {};
   const confirmedNightKill = hackerNightView.confirmedTarget ?? null;
   const hasSubmitted = confirmedNightKill !== null;
+  const bossPlayerId = hackerNightView.bossPlayerId ?? null;
+  const selfIsBoss = bossPlayerId !== null && bossPlayerId === selfId;
+  const bossName = bossPlayerId ? players[bossPlayerId]?.displayName ?? null : null;
 
   const hackerSet = new Set([selfId, ...(myTeammates ?? [])]);
   const candidates = Object.values(players).filter(
@@ -56,6 +59,13 @@ export default function NightPanel() {
       <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#f87171' }}>
         Pick a target to hack tonight.
       </div>
+      {bossPlayerId && (
+        <div style={{ marginBottom: 8, color: '#fbbf24', fontSize: 11 }}>
+          {selfIsBoss
+            ? 'You are The Boss — your selection is final.'
+            : `${bossName ?? 'The Boss'} has final say tonight.`}
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {candidates.map((p) => {
           const tally = nightKillTally[p.playerId] ?? 0;

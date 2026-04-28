@@ -143,7 +143,10 @@ describe('toPlayerSessionView', () => {
         createdAt: '2026-03-17T00:00:10.000Z',
       });
       const view = toPlayerSessionView(session, h1);
-      expect(view.hackerNightView).toEqual({ tally: { [friend]: 1 }, confirmedTarget: friend });
+      const bossId = Object.values(session.players).find(
+        (p) => p.alive && p.team === Team.HACKERS && p.roleId === RoleId.THE_BOSS,
+      )?.playerId ?? null;
+      expect(view.hackerNightView).toEqual({ tally: { [friend]: 1 }, confirmedTarget: friend, bossPlayerId: bossId });
       expect(view.myTeammates).toEqual([h2]);
     });
 
@@ -180,6 +183,7 @@ describe('toPlayerSessionView', () => {
       expect(view.hackerNightView).not.toBeNull();
       expect(view.hackerNightView!.tally).toEqual({});
       expect(view.hackerNightView!.confirmedTarget).toBeNull();
+      expect(typeof view.hackerNightView!.bossPlayerId === 'string' || view.hackerNightView!.bossPlayerId === null).toBe(true);
     });
 
     it('passes typed SystemEventMetadata through', () => {
