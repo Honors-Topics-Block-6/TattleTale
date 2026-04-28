@@ -845,6 +845,89 @@ describe('runtime-domain', () => {
       expect(session.privateSystemEvents?.[f2]).toBeUndefined();
     });
 
+    it('Tier 2 MONITOR applies a covert MONITORED restriction on PRIVATE channels (#87)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.MONITOR, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'MONITORED');
+      expect(r).toBeDefined();
+      if (r?.type === 'MONITORED') {
+        expect(r.targetPlayerId).toBe(f1);
+        expect(r.observerPlayerId).toBe(h1);
+        expect(r.channelTypes).toContain(ChannelType.PRIVATE);
+        expect(r.expiresAt).toBe(Phase.DAY_RESOLVE);
+      }
+    });
+
+    it('Tier 3 JAM applies a JAMMED restriction on PRIVATE channels and emits COMMUNICATION_JAMMED (#86)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.JAM, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'JAMMED' && r.playerId === f1);
+      expect(r).toBeDefined();
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.COMMUNICATION_JAMMED)).toBe(true);
+    });
+
+    it('Tier 3 MISDIRECT applies a one-shot ALTERED (SCRAMBLE) restriction on PRIVATE channels (#88)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.MISDIRECT, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const r = (session.restrictions ?? []).find((r) => r.type === 'ALTERED' && r.targetPlayerId === f1);
+      expect(r).toBeDefined();
+      if (r?.type === 'ALTERED') {
+        expect(r.mode).toBe('SCRAMBLE');
+        expect(r.oneShot).toBe(true);
+        expect(r.spent).toBe(false);
+      }
+      expect(session.systemEvents.some((e) => e.type === SystemEventType.MESSAGE_INTEGRITY_COMPROMISED)).toBe(true);
+    });
+
+    it('Tier 3 IMITATE silences the target and jams the imitator on PRIVATE (#89)', () => {
+      const { lobby, session } = buildNightSession();
+      const [h1] = hackerIds(session);
+      const [f1] = friendIds(session);
+
+      appendIntent(session, {
+        playerId: h1, type: IntentType.SUBMIT_NIGHT_ACTION,
+        payload: { actionType: NightActionType.IMITATE, targetPlayerId: f1, metadata: {} },
+        phase: Phase.NIGHT_ACTIONS, cycle: session.cycle, createdAt: '2026-03-17T00:00:10.000Z',
+      });
+      reconcileSessionRuntime(session, lobby, DEFAULT_LOBBY_SETTINGS, '2026-03-17T00:00:31.000Z');
+
+      const silenced = (session.restrictions ?? []).find(
+        (r) => r.type === 'SILENCED' && r.playerId === f1,
+      );
+      expect(silenced).toBeDefined();
+      const jammed = (session.restrictions ?? []).find(
+        (r) => r.type === 'JAMMED' && r.playerId === h1,
+      );
+      expect(jammed).toBeDefined();
+    });
+
     it('Tier 5 CREATE_TEMP_CHAT adds a TEMP channel expiring at DAY_RESOLVE', () => {
       const { lobby, session } = buildNightSession();
       const [f1, f2] = friendIds(session);

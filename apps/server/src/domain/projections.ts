@@ -1,4 +1,4 @@
-import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
+import { ChannelType, IntentType, NightActionType, Phase, RestrictionType, RoleId, Team, type LobbyView, type PlayerSessionView, type HackerNightView, type ProtectNightView, type HackerRoleNightView, type FirewallNightView, type FirewallChannelOption, type VengefulNightView, type ExtrovertNightView, type ViewerRestriction } from '@tattletale/shared';
 
 import type { GameState, NightActionIntentPayload, Restriction, VoteIntentPayload } from './game/types.js';
 import type { LobbyState } from './lobby/types.js';
@@ -155,6 +155,34 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     protectNightView = { confirmedTarget };
   }
 
+  // Hacker comm-roles (#86–#89). Each role exposes a single-target view that
+  // mirrors the ProtectNightView shape — null unless living + role + NIGHT_ACTIONS.
+  const hackerRoleView = (
+    requiredRole: RoleId,
+    requiredAction: NightActionType,
+  ): HackerRoleNightView | null => {
+    if (
+      !player?.alive
+      || player.roleId !== requiredRole
+      || session.phase !== Phase.NIGHT_ACTIONS
+    ) return null;
+    let confirmedTarget: string | null = null;
+    for (const intent of session.pendingIntents) {
+      if (intent.type !== IntentType.SUBMIT_NIGHT_ACTION) continue;
+      if (intent.cycle !== session.cycle) continue;
+      if (intent.playerId !== playerId) continue;
+      const payload = intent.payload as NightActionIntentPayload;
+      if (payload.actionType !== requiredAction) continue;
+      confirmedTarget = payload.targetPlayerId ?? null;
+    }
+    return { confirmedTarget };
+  };
+
+  const jammerNightView = hackerRoleView(RoleId.SIGNAL_JAMMER, NightActionType.JAM);
+  const eavesdropperNightView = hackerRoleView(RoleId.EAVESDROPPER, NightActionType.MONITOR);
+  const trollerNightView = hackerRoleView(RoleId.TROLLER, NightActionType.MISDIRECT);
+  const imitatorNightView = hackerRoleView(RoleId.IMITATOR, NightActionType.IMITATE);
+
   // Firewall-scoped night fields (#84). Non-null iff viewer is a living
   // FIREWALL AND phase is NIGHT_ACTIONS. Surfaces the channel options the
   // Firewall may lock (excluding SYSTEM, HACKER) and the once-per-game flag.
@@ -292,6 +320,10 @@ export function toPlayerSessionView(session: GameState, playerId: string): Playe
     myTeammates,
     hackerNightView,
     protectNightView,
+    jammerNightView,
+    eavesdropperNightView,
+    trollerNightView,
+    imitatorNightView,
     firewallNightView,
     vengefulNightView,
     extrovertNightView,
