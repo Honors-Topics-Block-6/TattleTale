@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toPlayerSessionView } from './projections.js';
-import { Phase, ChannelType, IntentType, NightActionType, RestrictionType, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
+import { Phase, ChannelType, IntentType, NightActionType, RestrictionType, RoleId, SessionStatus, SystemEventType, Team } from '@tattletale/shared';
 import type { GameState } from './game/types.js';
 import { RestrictionBuilders } from './game/restrictions.js';
 import { buildSessionFromLobby } from './game/session-domain.js';
@@ -199,6 +199,83 @@ describe('toPlayerSessionView', () => {
       const hacker = Object.values(session.players).find((p) => p.team === Team.HACKERS)!.playerId;
       expect(toPlayerSessionView(session, friend).channels.find((c) => c.id === 'hacker')).toBeUndefined();
       expect(toPlayerSessionView(session, hacker).channels.find((c) => c.id === 'hacker')).toBeDefined();
+    });
+  });
+
+  describe('protectNightView discriminator', () => {
+    function makeProtectState(overrides?: Partial<GameState>): GameState {
+      return {
+        gameId: 'game-1',
+        lobbyCode: 'ABC123',
+        status: SessionStatus.ACTIVE,
+        winnerTeam: null,
+        phase: Phase.NIGHT_ACTIONS,
+        cycle: 1,
+        players: {
+          p1: { playerId: 'p1', displayName: 'Alice', alive: true, connected: true, roleId: RoleId.SECURITY_SPECIALIST, team: Team.FRIENDS, permissions: [] },
+          p2: { playerId: 'p2', displayName: 'Bob', alive: true, connected: true, roleId: RoleId.FRIEND, team: Team.FRIENDS, permissions: [] },
+          p3: { playerId: 'p3', displayName: 'Carol', alive: true, connected: true, roleId: RoleId.HACKER, team: Team.HACKERS, permissions: [] },
+        },
+        channels: {
+          global: { id: 'global', type: ChannelType.GLOBAL, members: ['p1', 'p2', 'p3'], locked: false, expiresAt: null },
+        },
+        pendingIntents: [],
+        systemEvents: [],
+        timers: { currentPhaseEndsAt: null, currentPhaseDurationSeconds: 0 },
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it('non-null protectNightView for living Specialist during NIGHT_ACTIONS, with confirmed target after submission', () => {
+      const state = makeProtectState({
+        pendingIntents: [
+          {
+            id: 'i1', playerId: 'p1', type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.PROTECT, targetPlayerId: 'p2', metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: 1, createdAt: '',
+          },
+        ],
+      });
+      const view = toPlayerSessionView(state, 'p1');
+      expect(view.protectNightView).toEqual({ confirmedTarget: 'p2' });
+    });
+
+    it('confirmedTarget is null when Specialist has not submitted yet', () => {
+      const view = toPlayerSessionView(makeProtectState(), 'p1');
+      expect(view.protectNightView).toEqual({ confirmedTarget: null });
+    });
+
+    it('null protectNightView for non-Specialist roles', () => {
+      const state = makeProtectState();
+      expect(toPlayerSessionView(state, 'p2').protectNightView).toBeNull();
+      expect(toPlayerSessionView(state, 'p3').protectNightView).toBeNull();
+    });
+
+    it('null protectNightView for dead Specialist', () => {
+      const state = makeProtectState();
+      state.players.p1.alive = false;
+      expect(toPlayerSessionView(state, 'p1').protectNightView).toBeNull();
+    });
+
+    it('null protectNightView outside NIGHT_ACTIONS', () => {
+      const state = makeProtectState({ phase: Phase.DAY_OPEN });
+      expect(toPlayerSessionView(state, 'p1').protectNightView).toBeNull();
+    });
+
+    it('ignores PROTECT intents from prior cycles', () => {
+      const state = makeProtectState({
+        cycle: 2,
+        pendingIntents: [
+          {
+            id: 'i1', playerId: 'p1', type: IntentType.SUBMIT_NIGHT_ACTION,
+            payload: { actionType: NightActionType.PROTECT, targetPlayerId: 'p2', metadata: {} },
+            phase: Phase.NIGHT_ACTIONS, cycle: 1, createdAt: '',
+          },
+        ],
+      });
+      expect(toPlayerSessionView(state, 'p1').protectNightView).toEqual({ confirmedTarget: null });
     });
   });
 

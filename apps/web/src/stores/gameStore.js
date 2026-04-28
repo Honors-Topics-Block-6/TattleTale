@@ -43,6 +43,10 @@ const initialState = {
   // SUBMIT_NIGHT_ACTION is pending (e.g. after a Jealous SWAP_ROLE).
   investigateSubmittedCycle: null,
 
+  // Protect slice (Security-Specialist-scoped)
+  protectNightView: null,
+  pendingProtectSelection: null,
+
   // Session slice
   gameId: '',
   lobbyCode: '',
@@ -195,6 +199,19 @@ const useGameStore = create(
         state.investigateSubmittedCycle = cycle;
       }),
 
+    // --- Protect actions ---
+
+    selectProtectTarget: (id) =>
+      set((state) => {
+        if (state.protectNightView?.confirmedTarget !== null && state.protectNightView?.confirmedTarget !== undefined) return;
+        state.pendingProtectSelection = id;
+      }),
+
+    clearProtectSelection: () =>
+      set((state) => {
+        state.pendingProtectSelection = null;
+      }),
+
     // --- Session actions ---
 
     setElimination: (cause, cycle) =>
@@ -325,11 +342,13 @@ const useGameStore = create(
         state.myTeam = view.myTeam;
         state.myTeammates = view.myTeammates ?? [];
         state.hackerNightView = view.hackerNightView ?? null;
+        state.protectNightView = view.protectNightView ?? null;
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
+          state.pendingProtectSelection = null;
         }
         // Defense-in-depth: if the viewer's role was swapped away from
         // WHITE_HAT_HACKER mid-game (e.g. Jealous SWAP_ROLE), drop any stale
@@ -340,6 +359,13 @@ const useGameStore = create(
         ) {
           state.pendingInvestigateSelection = null;
           state.investigateSubmittedCycle = null;
+        }
+        // Same defense-in-depth for SECURITY_SPECIALIST role swaps.
+        if (
+          previousSelfRole === 'SECURITY_SPECIALIST' &&
+          view.myRole !== 'SECURITY_SPECIALIST'
+        ) {
+          state.pendingProtectSelection = null;
         }
 
         // Session slice
@@ -367,6 +393,12 @@ export function selectIsHacker(state) {
 
 export function selectIsWhiteHatHacker(state) {
   if (state.selfRole !== 'WHITE_HAT_HACKER') return false;
+  const self = state.selfId ? state.players?.[state.selfId] : null;
+  return Boolean(self?.alive);
+}
+
+export function selectIsSecuritySpecialist(state) {
+  if (state.selfRole !== 'SECURITY_SPECIALIST') return false;
   const self = state.selfId ? state.players?.[state.selfId] : null;
   return Boolean(self?.alive);
 }
