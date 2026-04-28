@@ -365,6 +365,11 @@ const useGameStore = create(
         state.hackerNightView = view.hackerNightView ?? null;
         state.protectNightView = view.protectNightView ?? null;
         state.extrovertNightView = view.extrovertNightView ?? null;
+        // Clear pending Extrovert selections once the server has acknowledged
+        // the submission, so the UI reads exclusively from confirmedTargetIds.
+        if (view.extrovertNightView?.confirmedTargetIds != null) {
+          state.pendingExtrovertSelections = [];
+        }
         // Clear pending night selection on phase change
         if (previousPhase === 'NIGHT_ACTIONS' && view.phase !== 'NIGHT_ACTIONS') {
           state.pendingNightKillSelection = null;
