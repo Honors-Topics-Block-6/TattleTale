@@ -54,9 +54,14 @@ export default function InvitePanel() {
         fontSize: 12,
       }}
     >
-      <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#60a5fa' }}>
+      <div style={{ fontWeight: 'bold', marginBottom: 4, color: '#60a5fa' }}>
         Invite players to a temporary group chat tonight.
       </div>
+      {!hasSubmitted && (
+        <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 11 }}>
+          Select at least one player, then press Confirm.
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {candidates.map((p) => {
           const isSelected = selectedSet.has(p.playerId);
